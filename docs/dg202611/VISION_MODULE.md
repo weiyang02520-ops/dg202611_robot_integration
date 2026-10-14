@@ -12,6 +12,7 @@ required. Neither package depends on navigation/fusion/recovery modules or the
 legacy inspection detector.
 
 `ARM_READY=NO`. ZED production camera contract is **not** claimed in this stage.
+`camera_contract` for explicit `mode:=v1_ros`: **`DEV_WEBCAM_ONLY / NOT_ZED`**.
 
 ## Current executable behaviour
 
@@ -26,28 +27,44 @@ legacy inspection detector.
 
 ### V1 ROS path (`mode:=v1_ros`, explicit only)
 
-When started with `mode:=v1_ros`, local ONNX model/manifest, and
-`detector_enabled` (auto-enabled by the node for this mode):
+Requires **local** ONNX + filled `model_manifest.json` (absolute paths). The node
+does **not** auto-download models and weights must not be committed.
 
 - Subscribes to configurable `rgb_topic` (`sensor_msgs/Image`).
-- Runs the same preprocess/ONNX/postprocess path as offline V1.
-- Publishes `vision_perception_interfaces/VisionDetectionArray` on
-  `/dg/vision/detections_2d`.
-- Continues publishing `/dg/vision/status`.
-- Does **not** publish `/dg/vision/objects`, depth pairing, tracking, TF, or cmd_vel.
-- `camera_contract` must be `DEV_WEBCAM_ONLY` / `NOT_ZED` (not a ZED acceptance claim).
+- Runs YOLO11n-seg-compatible preprocess/ONNX/postprocess (boxes for bottle/cup).
+- Publishes `VisionDetectionArray` on `/dg/vision/detections_2d` + status.
+- Does **not** publish `/dg/vision/objects`, depth, tracking, TF, or cmd_vel.
 
-Optional helpers (only when launch flags enable them):
+Optional launch helpers:
 
-- `vision_webcam_publisher` — V4L2/OpenCV device → Image (`use_webcam:=true`).
-- `vision_fake_image_publisher` — synthetic or `.npy` RGB (`use_fake_image:=true`).
+- `use_webcam:=true` → `vision_webcam_publisher` (V4L2/OpenCV, e.g. laptop camera).
+- `use_fake_image:=true` → synthetic RGB when `/dev/video*` is missing.
 
-Default launch remains skeleton: no camera node, no inference, no detections.
+### Model contract (owner-prepared artifacts)
+
+See package `README.md` and `examples/model_manifest.template.json`.
+
+| Field / layout | Value |
+|---|---|
+| Model | YOLO11n-seg COCO, export FP32 640 batch=1 opset=17, NMS not in graph |
+| `input_name` / shape | `images` / `[1,3,640,640]` |
+| `output0` / `output1` | `[1,116,8400]` / `[1,32,160,160]` |
+| `class_map` | `bottle=39`, `cup=41` |
+| Manifest | `source`, `onnx_sha256`, `license`, shapes, `class_map` (required) |
+
+**License:** upstream Ultralytics/COCO weight terms are separate from this repository.
+Do not redistribute weights until license review is complete. Suggested local paths:
+
+```text
+$HOME/vision_models/yolo11n-seg.onnx
+$HOME/vision_models/model_manifest.json   # copied from examples/ template
+```
+
+Missing `model_path` / manifest on `mode:=v1_ros` → FATAL non-zero exit (by design).
 
 ### V1 offline detection path
 
 File CLI `vision_offline_detect` → JSON/CSV with `source_kind=OFFLINE_FILE`.
-Model weights are not in git.
 
 ## Public contract (V4)
 
@@ -58,18 +75,26 @@ Model weights are not in git.
 | `/dg/vision/status` | `DiagnosticArray` | scaffold onward |
 | `/dg/vision/webcam/image_raw` | `sensor_msgs/Image` | optional DEV webcam / fake |
 
-## Configuration
+## Webcam / WSL trial (shortest)
 
-Installed config: `share/vision_perception/config/vision.yaml`.
-Default `rgb_topic` for this stage is `/dg/vision/webcam/image_raw`.
-Reserved ZED topic names remain documented for a later authorized stage and are
-not the v1_ros camera contract.
+Ubuntu or WSL2 (camera visible as `/dev/video*`):
+
+```bash
+ros2 launch vision_perception vision.launch.py \
+  mode:=v1_ros use_webcam:=true video_device:=0 \
+  model_path:=$HOME/vision_models/yolo11n-seg.onnx \
+  model_manifest_path:=$HOME/vision_models/model_manifest.json \
+  camera_contract:="DEV_WEBCAM_ONLY / NOT_ZED"
+```
+
+Without model paths → expect FATAL mentioning `model_path` / manifest hint.
+Without `/dev/video*` → use `use_fake_image:=true` instead of webcam.
 
 ## Verification
 
-- Unit tests (no hardware): `PYTHONPATH=src/vision_perception python3 -m pytest src/vision_perception/test -q`
-- Humble VM: colcon build; skeleton launch; `mode:=v1` reject; optional webcam/fake v1_ros.
-- Cloud agent environment has no ROS/camera; do not treat cloud unit tests as camera PASS.
+- Unit tests: `PYTHONPATH=src/vision_perception python3 -m pytest src/vision_perception/test -q`
+- Ubuntu103 (owner): build OK, skeleton OK, `mode:=v1` reject, fake path FATAL without model, 36 passed, no `/dev/video` at last check.
+- Cloud agent: no ROS/camera PASS claims.
 
 ## Existing-module boundary
 

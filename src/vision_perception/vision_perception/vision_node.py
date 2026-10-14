@@ -270,8 +270,18 @@ def main(args=None):
         rclpy.spin(node)
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
-    except (ValueError, RuntimeError) as exc:
-        print(f"[vision_perception_node] FATAL: {exc}", file=sys.stderr)
+    except (ValueError, RuntimeError, FileNotFoundError, OSError) as exc:
+        hint = ""
+        text = str(exc)
+        if "model_path" in text or "model manifest" in text or "model file" in text:
+            hint = (
+                " Hint: v1_ros needs absolute local paths "
+                "model_path:=/ABS/yolo11n-seg.onnx "
+                "model_manifest_path:=/ABS/model_manifest.json "
+                "(no auto-download; weights are not in git). "
+                "See share/vision_perception/examples/model_manifest.template.json"
+            )
+        print(f"[vision_perception_node] FATAL: {exc}{hint}", file=sys.stderr)
         exit_code = 1
     finally:
         if node is not None:

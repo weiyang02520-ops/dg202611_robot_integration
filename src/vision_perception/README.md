@@ -15,6 +15,8 @@ Independent manipulation-vision ROS2 package (arm-independent).
 | ZED / production camera contract | **Not authorized here.** `camera_contract=DEV_WEBCAM_ONLY / NOT_ZED` for v1_ros. |
 | V2 depth / V3 tracking / arm | Not implemented. `ARM_READY=NO`. |
 
+**Hard rules:** the node never auto-downloads weights; `.onnx` / `.pt` must stay out of git (see root `.gitignore`). License of upstream YOLO/COCO weights is separate from this repo — review before use; do not publish or redistribute weights until cleared.
+
 ## Build (Humble)
 
 ```bash
@@ -22,6 +24,73 @@ source /opt/ros/humble/setup.bash
 colcon build --symlink-install --packages-select vision_perception_interfaces vision_perception
 source install/setup.bash
 ```
+
+## Local ONNX + manifest (required for v1_ros / offline)
+
+Pipeline expects **YOLO11n-seg** COCO layout (V4 plan):
+
+| Item | Required value |
+|---|---|
+| Input name | `images` |
+| Input shape | `[1, 3, 640, 640]` FP32, values in `[0,1]` after `/255` |
+| `output0` | `[1, 116, 8400]` = 4 xywh + 80 class scores + 32 mask coeffs |
+| `output1` | `[1, 32, 160, 160]` mask prototypes (V1 publishes boxes only) |
+| Classes used | COCO `bottle=39`, `cup=41` only |
+| Export | FP32, imgsz=640, batch=1, `dynamic=false`, `simplify=false`, opset=17, **NMS not embedded** |
+
+### Manifest template (JSON only, no weights in repo)
+
+- Source template: `examples/model_manifest.template.json` (also installed under `share/vision_perception/examples/`)
+- Copy beside your local ONNX, fill hashes/license:
+
+```bash
+# Example local layout (outside git / gitignored)
+mkdir -p "$HOME/vision_models"
+cp src/vision_perception/examples/model_manifest.template.json \
+  "$HOME/vision_models/model_manifest.json"
+# After export:
+#   $HOME/vision_models/yolo11n-seg.onnx
+#   edit model_manifest.json → onnx_sha256 / weights_sha256 / license
+sha256sum "$HOME/vision_models/yolo11n-seg.onnx"
+```
+
+Required JSON fields: `source`, `onnx_sha256`, `license`, `input_name`, `input_shape`,
+`output0_shape`, `output1_shape`, `class_map` (`bottle`→39, `cup`→41). Optional:
+`weights_sha256`, `export_tool_versions`.
+
+### How to obtain / export (isolated env — do not touch robot global Python)
+
+Plan baseline: Ultralytics **8.3.0**, PyTorch **2.4.1**, torchvision **0.19.1**, ONNX **1.16.2**, Python 3.10 venv. Export is a **manual owner step**; this package will not download.
+
+```bash
+# On Ubuntu or WSL2 — separate venv (example only; pin versions you review)
+python3.10 -m venv "$HOME/yolo11_export_venv"
+source "$HOME/yolo11_export_venv/bin/activate"
+pip install 'ultralytics==8.3.0' 'torch==2.4.1' 'torchvision==0.19.1' 'onnx==1.16.2'
+
+# Ultralytics may fetch pretrained weights into its cache when you first load the name.
+# That is outside this ROS package. Review upstream license before use.
+python - <<'PY'
+from ultralytics import YOLO
+model = YOLO("yolo11n-seg.pt")  # local path preferred if you already have the file
+model.export(
+    format="onnx",
+    imgsz=640,
+    batch=1,
+    dynamic=False,
+    simplify=False,
+    opset=17,
+)
+print("Move the produced .onnx next to your filled model_manifest.json")
+PY
+deactivate
+
+# Deploy runtime (Humble side) needs onnxruntime CPU, e.g.:
+#   pip install --user 'onnxruntime==1.20.1'   # or apt/wheel policy you choose
+# Inference process must NOT import ultralytics/torch.
+```
+
+After export, verify ONNX I/O names/shapes match the table, fill `onnx_sha256`, set `license` only after review.
 
 ## Skeleton (default — safe)
 
@@ -32,26 +101,39 @@ ros2 launch vision_perception vision.launch.py mode:=v1
 ros2 run vision_perception vision_perception_node --ros-args -p mode:=v1
 ```
 
-## V1 ROS + front webcam (DEV_WEBCAM_ONLY / NOT_ZED)
+## Shortest webcam trial (Ubuntu / WSL2 + `/dev/video*`)
 
-Requires a **local** ONNX + `model_manifest.json` (not in git). Example:
+WSL2 needs USB camera attached to WSL (`usbipd` on Windows) so that `ls /dev/video*` works inside the Linux distro that runs Humble. Native Ubuntu: built-in laptop camera is usually `/dev/video0` (index `0`).
+
+### Expected FATAL without model (by design)
 
 ```bash
-# List devices (on the Humble machine)
-ls -l /dev/video*
+ros2 launch vision_perception vision.launch.py mode:=v1_ros use_webcam:=true
+# → non-zero exit, stderr like:
+# [vision_perception_node] FATAL: v1_ros mode requires model_path
+#   Hint: v1_ros needs absolute local paths model_path:=... model_manifest_path:=...
+```
 
-# Front webcam index is often 0; adjust video_device if needed.
+Same if `model_path` is set but the file/manifest is missing or SHA256 mismatches.
+
+### With local model + front camera
+
+```bash
+ls -l /dev/video*          # must exist for use_webcam:=true
+source /opt/ros/humble/setup.bash
+source install/setup.bash  # your colcon workspace
+
 ros2 launch vision_perception vision.launch.py \
   mode:=v1_ros \
   use_webcam:=true \
   video_device:=0 \
   rgb_topic:=/dg/vision/webcam/image_raw \
-  model_path:=/ABS/PATH/yolo11n-seg.onnx \
-  model_manifest_path:=/ABS/PATH/model_manifest.json \
+  model_path:=$HOME/vision_models/yolo11n-seg.onnx \
+  model_manifest_path:=$HOME/vision_models/model_manifest.json \
   camera_contract:="DEV_WEBCAM_ONLY / NOT_ZED"
 ```
 
-Watch topics:
+Watch:
 
 ```bash
 ros2 topic echo /dg/vision/status --once
@@ -59,27 +141,21 @@ ros2 topic echo /dg/vision/detections_2d --once
 ros2 topic hz /dg/vision/detections_2d
 ```
 
-### No webcam on Ubuntu103 — fake Image or external topic
+If `use_webcam:=true` but no device: webcam publisher FATALS with “Failed to open V4L2/OpenCV device”.
+
+### No `/dev/video` (e.g. current Ubuntu103) — fake Image
 
 ```bash
-# Synthetic RGB (no /dev/video required)
 ros2 launch vision_perception vision.launch.py \
   mode:=v1_ros \
   use_fake_image:=true \
   rgb_topic:=/dg/vision/webcam/image_raw \
-  model_path:=/ABS/PATH/yolo11n-seg.onnx \
-  model_manifest_path:=/ABS/PATH/model_manifest.json
-
-# Or publish your own Image (usb_cam / v4l2_camera / rosbag) and point rgb_topic at it:
-ros2 launch vision_perception vision.launch.py \
-  mode:=v1_ros \
-  use_webcam:=false \
-  rgb_topic:=/camera/image_raw \
-  model_path:=/ABS/PATH/yolo11n-seg.onnx \
-  model_manifest_path:=/ABS/PATH/model_manifest.json
+  model_path:=$HOME/vision_models/yolo11n-seg.onnx \
+  model_manifest_path:=$HOME/vision_models/model_manifest.json \
+  camera_contract:="DEV_WEBCAM_ONLY / NOT_ZED"
 ```
 
-Do **not** set `use_webcam:=true` and `use_fake_image:=true` together.
+Do **not** combine `use_webcam:=true` and `use_fake_image:=true`.
 
 ## Unit tests (no ROS / no camera)
 
@@ -92,13 +168,11 @@ PYTHONPATH=src/vision_perception python3 -m pytest src/vision_perception/test -q
 ```bash
 ros2 run vision_perception vision_offline_detect -- \
   --images /path/to/img.npy \
-  --model /path/to/yolo11n-seg.onnx \
-  --manifest /path/to/model_manifest.json \
+  --model $HOME/vision_models/yolo11n-seg.onnx \
+  --manifest $HOME/vision_models/model_manifest.json \
   --out-json /tmp/v1_offline.json \
   --out-csv /tmp/detections.csv
 ```
-
-Manifest example: `config/model_manifest.example.json`. Weights are gitignored.
 
 ## Boundaries
 

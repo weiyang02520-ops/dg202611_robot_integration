@@ -47,6 +47,6 @@ def test_node_uses_normalize_and_exits_nonzero_on_value_error():
     text = NODE_PATH.read_text(encoding="utf-8")
     assert "normalize_ros_node_mode" in text
     assert "sys.exit(exit_code)" in text
-    assert "except (ValueError, RuntimeError)" in text
+    assert "except (ValueError, RuntimeError, FileNotFoundError, OSError)" in text
     assert "v1_ros" in text
     assert "DEV_WEBCAM_ONLY" in text
