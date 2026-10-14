@@ -76,3 +76,7 @@ def test_bootstrap_isolated_ws_script_exists():
     assert "ensure_scripts_executable" in text
     assert "pytest" in text
     assert "use_fake_image" in text
+    # Humble setup.bash trips `set -u` (AMENT_TRACE_SETUP_FILES unbound).
+    assert "source_ros_setup" in text
+    assert "set +u" in text
+    assert "set -u" in text

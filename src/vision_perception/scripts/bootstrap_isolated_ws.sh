@@ -72,10 +72,22 @@ for path in sorted((root / "scripts").iterdir()):
 print("OK: package-local LF attributes + scripts have no CR")
 PY
 
+# Source ROS / colcon setup without nounset: Humble setup.bash references
+# optional vars (e.g. AMENT_TRACE_SETUP_FILES) that are unbound under `set -u`.
+source_ros_setup() {
+  local setup_file="$1"
+  if [[ ! -f "${setup_file}" ]]; then
+    return 1
+  fi
+  set +u
+  # shellcheck disable=SC1090
+  source "${setup_file}"
+  set -u
+}
+
 # 3) Prefer Humble ros2 over a broken ~/.local/bin/ros2
 if [[ -f /opt/ros/humble/setup.bash ]]; then
-  # shellcheck disable=SC1091
-  source /opt/ros/humble/setup.bash
+  source_ros_setup /opt/ros/humble/setup.bash
   export PATH="/opt/ros/humble/bin:${PATH}"
   hash -r || true
 fi
@@ -90,8 +102,7 @@ if [[ "${DO_BUILD}" -eq 1 ]]; then
          install/vision_perception install/vision_perception_interfaces
   colcon build --symlink-install --packages-select \
     vision_perception_interfaces vision_perception
-  # shellcheck disable=SC1091
-  source install/setup.bash
+  source_ros_setup install/setup.bash
   bash src/vision_perception/scripts/ensure_scripts_executable.sh
   bash src/vision_perception/scripts/check_ament_prefix_hook.sh
 fi

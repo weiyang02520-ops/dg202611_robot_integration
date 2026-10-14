@@ -39,13 +39,6 @@ install(FILES
 # Explicit PERMISSIONS: zip/SFTP often drops +x on the source tree; with
 # colcon --symlink-install the install path is a symlink to that source file,
 # so a copy-time mode alone is not enough — see install(CODE) chmod below.
-set(_VISION_LIBEXEC_SCRIPTS
-  vision_perception_node
-  vision_offline_detect
-  vision_webcam_publisher
-  vision_fake_image_publisher
-)
-
 install(PROGRAMS
   scripts/vision_perception_node
   scripts/vision_offline_detect
@@ -57,22 +50,31 @@ install(PROGRAMS
 
 # Force +x on installed libexec after every install. Follows symlinks, so
 # --symlink-install also repairs the source bit lost after zip/SFTP.
-install(CODE "
-  set(_vision_libexec \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/lib/${PROJECT_NAME}\")
-  foreach(_name ${_VISION_LIBEXEC_SCRIPTS})
-    set(_path \"\${_vision_libexec}/\${_name}\")
-    if(EXISTS \"\${_path}\")
+#
+# IMPORTANT: do NOT expand a CMake list (semicolon-separated) into install(CODE)
+# via ${_LIST} — cmake_install.cmake treats ';' as statement separators and
+# truncates the foreach. Use a bracket argument + foreach(... IN ITEMS ...).
+install(CODE [[
+  set(_vision_libexec "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/lib/vision_perception")
+  foreach(_name IN ITEMS
+      vision_perception_node
+      vision_offline_detect
+      vision_webcam_publisher
+      vision_fake_image_publisher
+    )
+    set(_path "${_vision_libexec}/${_name}")
+    if(EXISTS "${_path}")
       execute_process(
-        COMMAND chmod a+x \"\${_path}\"
+        COMMAND chmod a+x "${_path}"
         RESULT_VARIABLE _vision_chmod_res
       )
       if(NOT _vision_chmod_res EQUAL 0)
-        message(WARNING \"chmod a+x failed for \${_path} (res=\${_vision_chmod_res})\")
+        message(WARNING "chmod a+x failed for ${_path} (res=${_vision_chmod_res})")
       endif()
     else()
-      message(WARNING \"expected libexec script missing at install time: \${_path}\")
+      message(WARNING "expected libexec script missing at install time: ${_path}")
     endif()
   endforeach()
-")
+]])
 
 ament_package()

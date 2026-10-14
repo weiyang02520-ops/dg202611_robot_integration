@@ -49,6 +49,17 @@ def test_cmakelists_installs_libexec_scripts():
         assert f"scripts/{name}" in text
 
 
+def test_cmakelists_install_code_avoids_semicolon_list_expansion():
+    """List expansion into install(CODE) truncates cmake_install.cmake at ';'."""
+    text = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
+    assert "install(CODE [[" in text
+    assert "foreach(_name IN ITEMS" in text
+    # Must not inject a configure-time list via ${_VISION_...} inside CODE.
+    assert "${_VISION_LIBEXEC_SCRIPTS}" not in text
+    for name in EXEC_NAMES:
+        assert name in text
+
+
 def test_libexec_script_wrappers_exist():
     for name in EXEC_NAMES:
         path = ROOT / "scripts" / name
