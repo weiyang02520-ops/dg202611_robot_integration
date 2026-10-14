@@ -1,16 +1,17 @@
 vision_perception_node:
   ros__parameters:
-    # Only scaffold mode exists. Unsupported settings are rejected at startup.
-    # Parameters do not implement runtime feature activation.
+    # ROS node default remains skeleton-only (no camera / inference).
+    # V1 offline file detection uses: ros2 run vision_perception vision_offline_detect
+    # Unsupported ROS modes are rejected at startup. Parameters are startup-only.
     mode: skeleton
     detector_enabled: false
     tracking_enabled: false
     publish_debug_image: false
     backend: unconfigured
     model_path: ""
+    model_manifest_path: ""
 
-    # Reserved interfaces, not active subscriptions or object publishers yet.
-    # These names follow existing local ZED config; actual hardware is unverified.
+    # Reserved interface names. Local ZED names are source-supported, not hardware-verified.
     rgb_topic: /zed/zed_node/rgb/color/rect/image
     depth_topic: /zed/zed_node/depth/depth_registered
     camera_info_topic: /zed/zed_node/rgb/color/rect/camera_info
@@ -19,8 +20,15 @@ vision_perception_node:
     status_topic: /dg/vision/status
     target_classes: [bottle, cup]
 
-    # Future V2 parameters; the shell does not process depth or enforce sync.
+    # V4 plan defaults for future V1-C / V2; skeleton does not enforce depth/sync.
     output_frame_policy: input_optical_header
-    sync_tolerance_sec: 0.05
-    min_depth_m: 0.2
-    max_depth_m: 8.0
+    sync_tolerance_sec: 0.010
+    min_depth_m: 0.5
+    max_depth_m: 1.5
+    inference_rate_hz: 5.0
+    confidence_threshold: 0.35
+    nms_iou_threshold: 0.45
+    max_detections: 20
+    ort_threads: 2
+    model_input_size: 640
+    status_rate_hz: 1.0
