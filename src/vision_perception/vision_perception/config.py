@@ -45,6 +45,23 @@ class VisionConfig:
 
 DEFAULTS = VisionConfig()
 
+# ROS vision_perception_node allows only skeleton. Offline detection is CLI-only.
+ROS_NODE_ALLOWED_MODES = frozenset({"skeleton"})
+
+
+def require_ros_skeleton_mode(mode: Any) -> str:
+    """Reject any non-skeleton mode for the ROS node (non-zero startup failure).
+
+    Offline file detection must use vision_offline_detect, not mode:=offline/v1.
+    """
+    normalized = str(mode).strip()
+    if normalized not in ROS_NODE_ALLOWED_MODES:
+        raise ValueError(
+            f"Unsupported ROS mode={normalized!r}; only mode='skeleton' is allowed. "
+            "Use vision_offline_detect for V1 file-based offline detection (no camera)."
+        )
+    return normalized
+
 
 def _as_bool(value: Any) -> bool:
     if isinstance(value, bool):

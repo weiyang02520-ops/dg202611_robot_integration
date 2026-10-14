@@ -30,8 +30,9 @@ colcon build --symlink-install --packages-select vision_perception_interfaces vi
 source install/setup.bash
 ros2 interface show vision_perception_interfaces/msg/VisionDetectionArray
 ros2 launch vision_perception vision.launch.py
-# Optional rejection check (must fail startup):
-# ros2 run vision_perception vision_perception_node --ros-args -p mode:=v1
+# Rejection checks (must fail startup with non-zero exit; must NOT stay in SKELETON_ONLY):
+ros2 launch vision_perception vision.launch.py mode:=v1
+ros2 run vision_perception vision_perception_node --ros-args -p mode:=v1
 ```
 
 ## Offline unit tests (no ROS / no camera)

@@ -4,10 +4,14 @@ V1 offline detection lives in offline_cli / pipeline and does not run here.
 Live camera ROS detection (V1-C) is not enabled in this node.
 """
 
+import sys
+
 import rclpy
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
+
+from vision_perception.config import require_ros_skeleton_mode
 
 
 class VisionPerceptionNode(Node):
@@ -46,17 +50,20 @@ class VisionPerceptionNode(Node):
             self.declare_parameter(name, default)
 
         mode = self.get_parameter("mode").value
-        if mode != "skeleton":
-            raise ValueError(
-                "ROS node only supports skeleton mode; use vision_offline_detect "
-                "for V1 file-based offline detection (no camera)"
-            )
+        try:
+            require_ros_skeleton_mode(mode)
+        except ValueError as exc:
+            self.get_logger().error(str(exc))
+            raise
+
         enabled = any(
             self.get_parameter(name).value
             for name in ("detector_enabled", "tracking_enabled", "publish_debug_image")
         )
         if enabled or self.get_parameter("backend").value != "unconfigured":
-            raise ValueError("Inference, tracking and debug rendering are not active in skeleton mode")
+            raise ValueError(
+                "Inference, tracking and debug rendering are not active in skeleton mode"
+            )
         status_topic = self.get_parameter("status_topic").value
         if not status_topic.startswith("/dg/vision/"):
             raise ValueError("Scaffold status must remain within /dg/vision/")
@@ -97,19 +104,26 @@ class VisionPerceptionNode(Node):
 
 
 def main(args=None):
-    """Run the status-only shell using the existing repository cleanup style."""
+    """Run the status-only shell; unsupported configuration exits non-zero."""
     rclpy.init(args=args)
     node = None
+    exit_code = 0
     try:
         node = VisionPerceptionNode()
         rclpy.spin(node)
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
+    except ValueError as exc:
+        # Ensure launch/run do not keep a silent skeleton process on bad mode.
+        print(f"[vision_perception_node] FATAL: {exc}", file=sys.stderr)
+        exit_code = 1
     finally:
         if node is not None:
             node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
+    if exit_code != 0:
+        sys.exit(exit_code)
 
 
 if __name__ == "__main__":

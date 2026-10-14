@@ -9,6 +9,7 @@ import pytest
 
 from vision_perception.config import (
     load_model_manifest,
+    require_ros_skeleton_mode,
     validate_manifest_shapes,
     validate_vision_config,
     vision_config_from_mapping,
@@ -118,3 +119,11 @@ def test_validate_rejects_mode_v1_for_shared_config():
     # Shared helper allows only skeleton/offline. mode=v1 must not silently activate.
     with pytest.raises(ValueError, match="Unsupported mode"):
         validate_vision_config(VisionConfig(mode="v1"))
+
+
+def test_ros_node_helper_rejects_v1_even_if_offline_config_exists():
+    # ROS node path is stricter than shared VisionConfig (offline is CLI-only).
+    with pytest.raises(ValueError, match="Unsupported ROS mode"):
+        require_ros_skeleton_mode("v1")
+    with pytest.raises(ValueError, match="Unsupported ROS mode"):
+        require_ros_skeleton_mode("offline")
