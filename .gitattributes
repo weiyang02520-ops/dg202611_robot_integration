@@ -2,6 +2,10 @@
 *.sh text eol=lf
 *.py text eol=lf
 
+# vision_perception libexec wrappers have no extension; CRLF shebangs become
+# `python3\r` and fail with exit 127 on Linux. Force LF for the whole scripts/.
+src/vision_perception/scripts/** text eol=lf
+
 # Integrity lists are consumed by sha256sum on the robot.
 *.sha256 text eol=lf
 

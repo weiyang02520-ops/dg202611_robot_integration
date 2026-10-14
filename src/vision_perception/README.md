@@ -44,6 +44,10 @@ ros2 launch vision_perception vision.launch.py --show-args
 Executables are installed from `scripts/` via CMake `install(PROGRAMS ... DESTINATION lib/vision_perception)`.
 `ament_python_install_package` does not honor setuptools `entry_points`.
 
+**Line endings:** `src/vision_perception/scripts/**` is forced to LF in `.gitattributes`.
+CRLF shebangs become `python3\r` and fail with exit 127 on Linux — if that happens,
+renormalize: `git add --renormalize src/vision_perception/scripts && git checkout -- src/vision_perception/scripts`.
+
 ## Runtime Python pins (NumPy &lt; 2 — required)
 
 `v1_ros` / webcam / offline need:
