@@ -20,10 +20,12 @@ _RUNTIME_REQUIRES = [
 
 setup(
     name=PACKAGE_NAME,
-    version="0.1.4",
+    version="0.1.5",
     packages=[PACKAGE_NAME],
-    # Intentionally empty: CMake installs launch/config/examples/package.xml and
-    # ament_package() creates ament_prefix_path hooks + ament index marker.
+    # Intentionally empty: CMake installs launch/config/examples/package.xml,
+    # libexec scripts under lib/vision_perception/, and ament_package() creates
+    # ament_prefix_path hooks. ament_python_install_package ignores setuptools
+    # entry_points (it generates its own setup.py), so executables live in scripts/.
     data_files=[],
     install_requires=["setuptools", *_RUNTIME_REQUIRES],
     zip_safe=True,
@@ -32,12 +34,4 @@ setup(
     description="Independent manipulation-vision: skeleton, offline V1, optional v1_ros webcam.",
     license="Apache-2.0",
     tests_require=["pytest"],
-    entry_points={
-        "console_scripts": [
-            "vision_perception_node = vision_perception.vision_node:main",
-            "vision_offline_detect = vision_perception.offline_cli:main",
-            "vision_webcam_publisher = vision_perception.webcam_publisher:main",
-            "vision_fake_image_publisher = vision_perception.fake_image_publisher:main",
-        ],
-    },
 )

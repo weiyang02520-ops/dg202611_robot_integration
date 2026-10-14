@@ -35,9 +35,14 @@ source install/setup.bash
 ros2 pkg list | grep vision_perception
 ros2 pkg prefix vision_perception
 grep ament_prefix_path "$(ros2 pkg prefix vision_perception)/share/vision_perception/package.dsv"
+ros2 pkg executables vision_perception
+# expect libexec scripts under install/vision_perception/lib/vision_perception/
 bash src/vision_perception/scripts/check_ament_prefix_hook.sh
 ros2 launch vision_perception vision.launch.py --show-args
 ```
+
+Executables are installed from `scripts/` via CMake `install(PROGRAMS ... DESTINATION lib/vision_perception)`.
+`ament_python_install_package` does not honor setuptools `entry_points`.
 
 ## Runtime Python pins (NumPy &lt; 2 — required)
 

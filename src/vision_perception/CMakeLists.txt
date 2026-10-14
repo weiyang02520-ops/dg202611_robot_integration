@@ -5,11 +5,14 @@ project(vision_perception)
 # ament_prefix_path environment hooks. Pure setuptools ament_python installs on
 # this workspace were left with package.dsv containing only pythonpath, which
 # broke `ros2 pkg prefix` / launch after `source install/setup.bash`.
+#
+# Note: ament_python_install_package() generates its own setup.py without
+# setuptools entry_points, so console scripts are installed explicitly below
+# into lib/${PROJECT_NAME}/ (required by ros2 launch / libexec).
 
 find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_python REQUIRED)
 
-# Install Python modules + console_scripts from setup.py (no share/ data_files).
 ament_python_install_package(${PROJECT_NAME})
 
 install(DIRECTORY launch config examples
@@ -23,6 +26,13 @@ install(FILES
   DESTINATION share/${PROJECT_NAME}
 )
 
-# ament_package() registers the package index marker and writes
-# share/${PROJECT_NAME}/hook/ament_prefix_path.{dsv,sh,ps1} plus package.dsv.
+# ROS 2 libexec location for package executables.
+install(PROGRAMS
+  scripts/vision_perception_node
+  scripts/vision_offline_detect
+  scripts/vision_webcam_publisher
+  scripts/vision_fake_image_publisher
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 ament_package()

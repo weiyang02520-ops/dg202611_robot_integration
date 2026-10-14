@@ -49,8 +49,19 @@ case ":${AMENT_PREFIX_PATH}:" in
     ;;
 esac
 
+LIBEXEC="$PREFIX/lib/$PKG"
+for exe in vision_perception_node vision_offline_detect vision_webcam_publisher vision_fake_image_publisher; do
+  if [[ ! -x "$LIBEXEC/$exe" ]]; then
+    echo "FAIL: missing executable $LIBEXEC/$exe"
+    ls -la "$LIBEXEC" 2>/dev/null || true
+    exit 1
+  fi
+done
+
 echo "OK: $PKG prefix=$PREFIX"
 echo "OK: package.dsv includes ament_prefix_path"
 echo "OK: AMENT_PREFIX_PATH contains package prefix"
+echo "OK: libexec scripts present under $LIBEXEC"
+ros2 pkg executables "$PKG"
 ros2 launch "$PKG" vision.launch.py --show-args >/dev/null
 echo "OK: ros2 launch $PKG vision.launch.py --show-args"
