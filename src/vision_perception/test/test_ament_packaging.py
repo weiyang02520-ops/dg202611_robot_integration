@@ -39,6 +39,12 @@ def test_cmakelists_installs_libexec_scripts():
     assert "ament_package()" in text
     assert "DESTINATION lib/${PROJECT_NAME}" in text
     assert "install(PROGRAMS" in text
+    # Explicit +x and post-install chmod (zip/SFTP + symlink-install).
+    assert "OWNER_EXECUTE" in text
+    assert "chmod a+x" in text
+    assert "install(CODE" in text
+    assert ".gitattributes" in text
+    assert "ensure_scripts_executable.sh" in text
     for name in EXEC_NAMES:
         assert f"scripts/{name}" in text
 
@@ -49,8 +55,28 @@ def test_libexec_script_wrappers_exist():
         assert path.is_file(), path
         text = path.read_text(encoding="utf-8")
         assert text.startswith("#!/usr/bin/env python3")
-        # CMake install(PROGRAMS) installs with execute permission even if the
-        # working-tree bit is lost on some checkouts; prefer shebang + CMake list.
+
+
+def test_ensure_scripts_executable_restores_lost_execute_bit(tmp_path, monkeypatch):
+    """zip/SFTP drops +x; helper must restore it without needing a manual chmod."""
+    import os
+    import subprocess
+    import stat
+
+    scripts = ROOT / "scripts"
+    target = scripts / "vision_fake_image_publisher"
+    mode_before = target.stat().st_mode
+    try:
+        target.chmod(mode_before & ~stat.S_IXUSR & ~stat.S_IXGRP & ~stat.S_IXOTH)
+        assert not (target.stat().st_mode & stat.S_IXUSR)
+        subprocess.run(
+            ["bash", str(scripts / "ensure_scripts_executable.sh")],
+            check=True,
+            cwd=str(ROOT.parents[1]),
+        )
+        assert target.stat().st_mode & stat.S_IXUSR
+    finally:
+        os.chmod(target, mode_before | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
 def test_setup_py_does_not_install_share_or_console_entry_points():

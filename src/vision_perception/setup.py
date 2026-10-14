@@ -20,7 +20,7 @@ _RUNTIME_REQUIRES = [
 
 setup(
     name=PACKAGE_NAME,
-    version="0.1.5",
+    version="0.1.6",
     packages=[PACKAGE_NAME],
     # Intentionally empty: CMake installs launch/config/examples/package.xml,
     # libexec scripts under lib/vision_perception/, and ament_package() creates

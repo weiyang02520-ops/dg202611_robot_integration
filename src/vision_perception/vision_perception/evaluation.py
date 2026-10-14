@@ -1,0 +1,271 @@
+"""Offline V1 bbox evaluation (plan §10.1). No ROS / no camera / no weights.
+
+Same-class IoU≥threshold one-to-one matching. Per-class precision/recall.
+Denominator zero → metric marked non-computable (not 100%).
+Empty GT images contribute FP when predictions appear; they do not inflate
+precision denominators via background frame counts alone.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+from vision_perception.postprocess import box_iou_xyxy
+from vision_perception.types import ALLOWED_CLASSES
+
+
+DEFAULT_IOU_THRESHOLD = 0.5
+
+
+@dataclass(frozen=True)
+class EvalBox:
+    class_name: str
+    x_min: float
+    y_min: float
+    x_max: float
+    y_max: float
+
+    def as_xyxy(self) -> Tuple[float, float, float, float]:
+        return (self.x_min, self.y_min, self.x_max, self.y_max)
+
+
+@dataclass
+class ImageEvalCase:
+    source_image_id: str
+    ground_truth: List[EvalBox] = field(default_factory=list)
+    predictions: List[EvalBox] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class ClassCounts:
+    tp: int = 0
+    fp: int = 0
+    fn: int = 0
+
+    def add(self, other: "ClassCounts") -> "ClassCounts":
+        return ClassCounts(self.tp + other.tp, self.fp + other.fp, self.fn + other.fn)
+
+
+def _metric_or_none(numerator: int, denominator: int) -> Optional[float]:
+    if denominator <= 0:
+        return None
+    return float(numerator) / float(denominator)
+
+
+def bbox_from_detection_dict(det: Dict[str, Any]) -> EvalBox:
+    bbox = det["bbox"]
+    cx = float(bbox["center_x"])
+    cy = float(bbox["center_y"])
+    sx = float(bbox["size_x"])
+    sy = float(bbox["size_y"])
+    return EvalBox(
+        class_name=str(det["class_name"]),
+        x_min=cx - 0.5 * sx,
+        y_min=cy - 0.5 * sy,
+        x_max=cx + 0.5 * sx,
+        y_max=cy + 0.5 * sy,
+    )
+
+
+def bbox_from_annotation_dict(item: Dict[str, Any]) -> EvalBox:
+    if "bbox" in item and isinstance(item["bbox"], dict):
+        return bbox_from_detection_dict(item)
+    if all(k in item for k in ("x_min", "y_min", "x_max", "y_max")):
+        return EvalBox(
+            class_name=str(item["class_name"]),
+            x_min=float(item["x_min"]),
+            y_min=float(item["y_min"]),
+            x_max=float(item["x_max"]),
+            y_max=float(item["y_max"]),
+        )
+    raise ValueError(
+        "annotation box needs class_name + xyxy or centre/size bbox dict"
+    )
+
+
+def match_same_class_iou(
+    ground_truth: Sequence[EvalBox],
+    predictions: Sequence[EvalBox],
+    *,
+    iou_threshold: float = DEFAULT_IOU_THRESHOLD,
+) -> ClassCounts:
+    """Greedy one-to-one match within a single class list (already filtered)."""
+    if not ground_truth and not predictions:
+        return ClassCounts()
+    if not ground_truth:
+        return ClassCounts(fp=len(predictions))
+    if not predictions:
+        return ClassCounts(fn=len(ground_truth))
+
+    pairs: List[Tuple[float, int, int]] = []
+    for gi, gt in enumerate(ground_truth):
+        for pi, pred in enumerate(predictions):
+            iou = box_iou_xyxy(gt.as_xyxy(), pred.as_xyxy())
+            if iou >= iou_threshold:
+                pairs.append((iou, gi, pi))
+    # Highest IoU first; ties by gt index then pred index for determinism.
+    pairs.sort(key=lambda item: (-item[0], item[1], item[2]))
+    used_gt: set[int] = set()
+    used_pred: set[int] = set()
+    tp = 0
+    for _iou, gi, pi in pairs:
+        if gi in used_gt or pi in used_pred:
+            continue
+        used_gt.add(gi)
+        used_pred.add(pi)
+        tp += 1
+    fp = len(predictions) - len(used_pred)
+    fn = len(ground_truth) - len(used_gt)
+    return ClassCounts(tp=tp, fp=fp, fn=fn)
+
+
+def evaluate_image(
+    case: ImageEvalCase, *, iou_threshold: float = DEFAULT_IOU_THRESHOLD
+) -> Dict[str, ClassCounts]:
+    by_class: Dict[str, ClassCounts] = {name: ClassCounts() for name in ALLOWED_CLASSES}
+    for class_name in ALLOWED_CLASSES:
+        gt = [b for b in case.ground_truth if b.class_name == class_name]
+        pred = [b for b in case.predictions if b.class_name == class_name]
+        by_class[class_name] = match_same_class_iou(
+            gt, pred, iou_threshold=iou_threshold
+        )
+    # Predictions outside allowed classes count as FP against neither bottle/cup;
+    # surface them under a synthetic bucket only if present.
+    other = [b for b in case.predictions if b.class_name not in ALLOWED_CLASSES]
+    if other:
+        by_class["_other"] = ClassCounts(fp=len(other))
+    return by_class
+
+
+def evaluate_cases(
+    cases: Sequence[ImageEvalCase],
+    *,
+    iou_threshold: float = DEFAULT_IOU_THRESHOLD,
+    classes: Sequence[str] = ALLOWED_CLASSES,
+) -> Dict[str, Any]:
+    totals = {name: ClassCounts() for name in classes}
+    per_image: List[Dict[str, Any]] = []
+    for case in cases:
+        by_class = evaluate_image(case, iou_threshold=iou_threshold)
+        image_entry: Dict[str, Any] = {
+            "source_image_id": case.source_image_id,
+            "counts": {},
+        }
+        for name in classes:
+            counts = by_class.get(name, ClassCounts())
+            totals[name] = totals[name].add(counts)
+            image_entry["counts"][name] = {
+                "tp": counts.tp,
+                "fp": counts.fp,
+                "fn": counts.fn,
+            }
+        per_image.append(image_entry)
+
+    metrics: Dict[str, Any] = {
+        "stage": "V1_OFFLINE_EVAL",
+        "iou_threshold": float(iou_threshold),
+        "score_note": "Caller must filter predictions at the operating score (default 0.35).",
+        "per_class": {},
+        "images": per_image,
+        "arm_ready": "NO",
+        "camera_contract": "NOT_RUN",
+    }
+    for name in classes:
+        c = totals[name]
+        precision = _metric_or_none(c.tp, c.tp + c.fp)
+        recall = _metric_or_none(c.tp, c.tp + c.fn)
+        metrics["per_class"][name] = {
+            "tp": c.tp,
+            "fp": c.fp,
+            "fn": c.fn,
+            "precision": precision,
+            "recall": recall,
+            "precision_computable": precision is not None,
+            "recall_computable": recall is not None,
+        }
+    return metrics
+
+
+def load_annotations_file(path: str) -> Dict[str, List[EvalBox]]:
+    """Load annotations keyed by source_image_id.
+
+    Accepted shapes:
+      {"images":[{"source_image_id":"a.jpg","boxes":[...]}]}
+      [{"source_image_id":"a.jpg","boxes":[...]}]
+    """
+    import json
+    from pathlib import Path
+
+    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    if isinstance(raw, dict) and "images" in raw:
+        entries = list(raw["images"])
+    elif isinstance(raw, list):
+        entries = raw
+    else:
+        raise ValueError("annotations must be a list or {images:[...]}")
+
+    out: Dict[str, List[EvalBox]] = {}
+    for entry in entries:
+        image_id = str(entry.get("source_image_id") or entry.get("image_id") or "")
+        if not image_id:
+            raise ValueError("each annotation image needs source_image_id")
+        boxes = [bbox_from_annotation_dict(item) for item in entry.get("boxes", [])]
+        for box in boxes:
+            if box.class_name not in ALLOWED_CLASSES:
+                raise ValueError(
+                    f"annotation class_name={box.class_name!r} not in {ALLOWED_CLASSES}"
+                )
+        out[image_id] = boxes
+    return out
+
+
+def cases_from_offline_batches(
+    batches: Sequence[Dict[str, Any]],
+    annotations_by_id: Dict[str, List[EvalBox]],
+) -> List[ImageEvalCase]:
+    """Pair offline detection batches with GT. Missing GT → empty GT (FP-only)."""
+    cases: List[ImageEvalCase] = []
+    seen: set[str] = set()
+    for batch in batches:
+        image_id = str(batch.get("source_image_id") or "")
+        if not image_id:
+            raise ValueError("detection batch missing source_image_id")
+        seen.add(image_id)
+        preds = [bbox_from_detection_dict(det) for det in batch.get("detections", [])]
+        cases.append(
+            ImageEvalCase(
+                source_image_id=image_id,
+                ground_truth=list(annotations_by_id.get(image_id, [])),
+                predictions=preds,
+            )
+        )
+    # GT-only images (no prediction batch) count as FN.
+    for image_id, boxes in annotations_by_id.items():
+        if image_id in seen:
+            continue
+        cases.append(
+            ImageEvalCase(
+                source_image_id=image_id,
+                ground_truth=list(boxes),
+                predictions=[],
+            )
+        )
+    return cases
+
+
+def evaluate_offline_payload(
+    payload_or_batches: Any,
+    annotations_path: str,
+    *,
+    iou_threshold: float = DEFAULT_IOU_THRESHOLD,
+) -> Dict[str, Any]:
+    if isinstance(payload_or_batches, dict) and "batches" in payload_or_batches:
+        batches = list(payload_or_batches["batches"])
+    elif isinstance(payload_or_batches, list):
+        batches = list(payload_or_batches)
+    else:
+        raise ValueError("expected offline payload with batches or a batch list")
+    annotations = load_annotations_file(annotations_path)
+    cases = cases_from_offline_batches(batches, annotations)
+    return evaluate_cases(cases, iou_threshold=iou_threshold)

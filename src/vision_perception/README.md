@@ -56,9 +56,20 @@ ros2 launch vision_perception vision.launch.py --show-args
 Executables are installed from `scripts/` via CMake `install(PROGRAMS ... DESTINATION lib/vision_perception)`.
 `ament_python_install_package` does not honor setuptools `entry_points`.
 
-**Line endings:** `src/vision_perception/scripts/**` is forced to LF in `.gitattributes`.
-CRLF shebangs become `python3\r` and fail with exit 127 on Linux — if that happens,
-renormalize: `git add --renormalize src/vision_perception/scripts && git checkout -- src/vision_perception/scripts`.
+**Line endings:** package-local `src/vision_perception/.gitattributes` forces LF on
+`scripts/**` (works even when the monorepo root `.gitattributes` is absent after a
+two-package zip/SFTP sync). CRLF shebangs become `python3\r` and fail with exit 127.
+
+**Execute bit:** zip/SFTP often drops `+x`. With `colcon --symlink-install`, libexec
+entries are symlinks to `scripts/vision_*`, so a missing source bit breaks launch.
+CMake `install(PROGRAMS … PERMISSIONS …)` plus a post-install `chmod a+x` repairs
+install space (and the symlink target). After any non-git sync, still prefer:
+
+```bash
+bash src/vision_perception/scripts/ensure_scripts_executable.sh
+# or full isolated bootstrap:
+bash src/vision_perception/scripts/bootstrap_isolated_ws.sh
+```
 
 ## Runtime Python pins (NumPy &lt; 2 — required)
 
@@ -296,7 +307,7 @@ ros2 run vision_perception vision_offline_detect -- \
 
 No MODEL-1/2/3, Nav2/AMCL/SLAM, EKF/TF, cmd_vel, chassis, production bringup, `ylhb_*`, or ZED SDK changes. This package does not publish `/dg/vision/objects` in v1_ros.
 
-## Ubuntu103 sync (same PR branch)
+## Ubuntu103 sync (same PR branch / full git checkout)
 
 ```bash
 cd /path/to/ws/src/<this-repo>
@@ -308,14 +319,49 @@ source /opt/ros/humble/setup.bash
 # Prefer Humble ros2 over a broken ~/.local/bin/ros2:
 export PATH="/opt/ros/humble/bin:$PATH"; hash -r
 
+bash src/vision_perception/scripts/ensure_scripts_executable.sh
 rm -rf build/vision_perception build/vision_perception_interfaces \
        install/vision_perception install/vision_perception_interfaces
 colcon build --symlink-install --packages-select \
   vision_perception_interfaces vision_perception
 source install/setup.bash
+bash src/vision_perception/scripts/ensure_scripts_executable.sh
+bash src/vision_perception/scripts/check_ament_prefix_hook.sh
 
 python3 -m pip install --user -r src/vision_perception/requirements-runtime.txt
 PYTHONPATH=src/vision_perception python3 -m pytest src/vision_perception/test -q
-
-# Then fake-image or webcam smoke with local ONNX (NOT_RUN until you have weights + photo)
 ```
+
+## Isolated workspace (only the two vision packages)
+
+After zip/SFTP of `vision_perception` + `vision_perception_interfaces` into
+`ws/src/` (no monorepo root `.gitattributes`):
+
+```bash
+cd /path/to/isolated_ws
+bash src/vision_perception/scripts/bootstrap_isolated_ws.sh --build
+# pytest-only (no colcon):
+#   bash src/vision_perception/scripts/bootstrap_isolated_ws.sh --pytest-only
+```
+
+The bootstrap script: restores `+x`, checks package-local LF attributes, optionally
+builds, runs pytest, and prints fake-image smoke commands (NOT_RUN without ONNX).
+
+**You should not need a manual `chmod +x scripts/vision_*` after a normal colcon
+install** — CMake post-install `chmod` covers it. If launch still says “Permission
+denied” / not executable, re-run `ensure_scripts_executable.sh` (zip edge cases).
+
+## Offline V1 evaluation (no ROS)
+
+```bash
+ros2 run vision_perception vision_offline_detect -- \
+  --images /path/to/img.jpg \
+  --model $HOME/vision_models/yolo11n-seg.onnx \
+  --manifest $HOME/vision_models/model_manifest.json \
+  --out-json /tmp/v1_offline.json \
+  --eval-annotations src/vision_perception/examples/eval_annotations.example.json \
+  --out-metrics /tmp/v1_metrics.json
+```
+
+Annotation schema: `examples/eval_annotations.example.json`. Metrics follow plan
+§10.1 (per-class precision/recall; zero denominators → non-computable, not 100%).

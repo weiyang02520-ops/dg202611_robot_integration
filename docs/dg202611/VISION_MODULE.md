@@ -71,7 +71,12 @@ Missing `model_path` / manifest on `mode:=v1_ros` → FATAL non-zero exit (by de
 ### V1 offline detection path
 
 File CLI `vision_offline_detect` → JSON/CSV with `source_kind=OFFLINE_FILE`.
+Optional `--eval-annotations` / `--out-metrics` for plan §10.1 precision/recall.
 Format sample: `examples/golden_format_batch.json` (not a real ONNX golden).
+
+Isolated two-package sync: use
+`bash src/vision_perception/scripts/bootstrap_isolated_ws.sh` (restores `+x`,
+package-local LF attributes, pytest; optional `--build`).
 
 ## Public contract (V4)
 

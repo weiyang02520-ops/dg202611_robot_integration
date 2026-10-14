@@ -36,6 +36,22 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--out-json", default="", help="Optional JSON results path")
     parser.add_argument("--out-csv", default="", help="Optional detections.csv path")
+    parser.add_argument(
+        "--eval-annotations",
+        default="",
+        help="Optional V1 bbox annotations JSON for offline precision/recall metrics",
+    )
+    parser.add_argument(
+        "--out-metrics",
+        default="",
+        help="Optional metrics.json path (requires --eval-annotations)",
+    )
+    parser.add_argument(
+        "--eval-iou",
+        type=float,
+        default=0.5,
+        help="IoU threshold for V1 matching (plan default 0.5)",
+    )
     parser.add_argument("--confidence", type=float, default=0.35)
     parser.add_argument("--nms-iou", type=float, default=0.45)
     parser.add_argument("--max-detections", type=int, default=20)
@@ -145,6 +161,35 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(text)
     if args.out_csv:
         _write_csv(args.out_csv, batches)
+
+    if args.out_metrics and not args.eval_annotations:
+        print("ERROR: --out-metrics requires --eval-annotations", file=sys.stderr)
+        return 2
+    if args.eval_annotations:
+        from vision_perception.evaluation import evaluate_offline_payload
+
+        if not Path(args.eval_annotations).is_file():
+            print(
+                f"ERROR: annotations not found: {args.eval_annotations}",
+                file=sys.stderr,
+            )
+            return 2
+        try:
+            metrics = evaluate_offline_payload(
+                payload,
+                args.eval_annotations,
+                iou_threshold=float(args.eval_iou),
+            )
+        except Exception as exc:  # noqa: BLE001 - CLI boundary
+            print(f"ERROR: evaluation failed: {exc}", file=sys.stderr)
+            return 1
+        metrics_text = json.dumps(metrics, indent=2, sort_keys=True)
+        if args.out_metrics:
+            mpath = Path(args.out_metrics)
+            mpath.parent.mkdir(parents=True, exist_ok=True)
+            mpath.write_text(metrics_text + "\n", encoding="utf-8")
+        else:
+            print(metrics_text)
     return 0
 
 
