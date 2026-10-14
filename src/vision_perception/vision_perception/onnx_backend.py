@@ -31,8 +31,9 @@ def _import_ort():
         import onnxruntime as ort  # type: ignore
     except ImportError as exc:
         raise RuntimeError(
-            "onnxruntime is required for offline detection "
-            "(plan baseline: onnxruntime==1.20.1)"
+            "onnxruntime is required for offline/v1_ros detection "
+            "(pin onnxruntime==1.20.1 after numpy>=1.26.4,<2; "
+            "see requirements-runtime.txt)"
         ) from exc
     return ort
 

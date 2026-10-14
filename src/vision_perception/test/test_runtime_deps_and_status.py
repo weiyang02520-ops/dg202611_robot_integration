@@ -1,0 +1,101 @@
+"""Runtime pin contract + empty-detections healthy status (no ROS / no camera)."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from vision_perception.runtime_deps import (
+    NUMPY_PIP,
+    ONNXRUNTIME_PIP,
+    OPENCV_PIP,
+    PIP_INSTALL_ORDER,
+    check_numpy_opencv_compat,
+    numpy_major_version,
+    pip_install_commands,
+)
+from vision_perception.status_fields import (
+    LEVEL_OK,
+    LEVEL_WARN,
+    compose_v1_ros_diagnostic,
+    empty_detections_are_healthy,
+)
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_pip_order_is_numpy_then_opencv_then_ort():
+    assert PIP_INSTALL_ORDER[0].startswith("numpy")
+    assert "<2" in PIP_INSTALL_ORDER[0]
+    assert "opencv" in PIP_INSTALL_ORDER[1]
+    assert "onnxruntime" in PIP_INSTALL_ORDER[2]
+    cmds = pip_install_commands()
+    assert len(cmds) == 3
+    assert "numpy" in cmds[0] and "opencv" in cmds[1] and "onnxruntime" in cmds[2]
+
+
+def test_requirements_runtime_txt_matches_pins():
+    text = (ROOT / "requirements-runtime.txt").read_text(encoding="utf-8")
+    assert "numpy>=1.26.4,<2" in text
+    assert OPENCV_PIP in text
+    assert ONNXRUNTIME_PIP in text
+    # Order: numpy line before opencv before onnxruntime in the pin list section.
+    n = text.index("numpy>=")
+    o = text.index("opencv-python-headless")
+    r = text.index("onnxruntime==")
+    assert n < o < r
+
+
+def test_setup_py_pins_numpy_less_than_2():
+    text = (ROOT / "setup.py").read_text(encoding="utf-8")
+    assert "numpy>=1.26.4,<2" in text
+    assert OPENCV_PIP in text
+    assert ONNXRUNTIME_PIP in text
+
+
+def test_package_xml_mentions_numpy_pin_and_opencv():
+    text = (ROOT / "package.xml").read_text(encoding="utf-8")
+    assert "python3-numpy" in text
+    assert "python3-opencv" in text
+    assert "numpy" in text and "_ARRAY_API" in text
+
+
+def test_check_numpy_rejects_major_2():
+    check_numpy_opencv_compat("1.26.4")
+    with pytest.raises(RuntimeError, match="_ARRAY_API"):
+        check_numpy_opencv_compat("2.0.0")
+    assert numpy_major_version("1.26.4") == 1
+    assert NUMPY_PIP.endswith("<2")
+
+
+def test_empty_detections_keep_ok_status():
+    level, message, fields = compose_v1_ros_diagnostic(
+        frames_received=40,
+        frames_processed=30,
+        frames_dropped=5,
+        last_observation_id=30,
+        last_detection_count=0,
+        last_worker_error="",
+    )
+    assert level == LEVEL_OK
+    assert message == "V1_ROS_DEV_WEBCAM"
+    assert fields["last_detection_count"] == "0"
+    assert fields["empty_detections_healthy"] == "true"
+    assert empty_detections_are_healthy(0, "") is True
+
+
+def test_worker_error_degrades_status_not_empty_boxes():
+    level, message, fields = compose_v1_ros_diagnostic(
+        frames_received=10,
+        frames_processed=1,
+        frames_dropped=0,
+        last_observation_id=1,
+        last_detection_count=0,
+        last_worker_error="onnx boom",
+    )
+    assert level == LEVEL_WARN
+    assert message == "V1_ROS_DEGRADED"
+    assert fields["last_worker_error"] == "onnx boom"
+    assert empty_detections_are_healthy(0, "onnx boom") is False

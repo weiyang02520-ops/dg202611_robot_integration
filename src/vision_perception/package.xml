@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <package format="3">
   <name>vision_perception</name>
-  <version>0.1.1</version>
+  <version>0.1.2</version>
   <description>Independent manipulation-vision: skeleton, offline V1, optional v1_ros webcam path.</description>
   <maintainer email="206929594+liaojingwu20041031@users.noreply.github.com">liaojingwu20041031</maintainer>
   <license>Apache-2.0</license>
@@ -14,6 +14,15 @@
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>vision_msgs</exec_depend>
   <exec_depend>vision_perception_interfaces</exec_depend>
+  <!--
+    Python pins (numpy&lt;2, opencv-python-headless, onnxruntime) live in
+    setup.py + requirements-runtime.txt. System python3-numpy/opencv on
+    Ubuntu 22.04 are usually 1.x; do NOT pip-upgrade numpy to 2.x or cv2
+    may fail with _ARRAY_API. Prefer:
+      pip install --user -r share/vision_perception/requirements-runtime.txt
+  -->
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
   <test_depend>python3-pytest</test_depend>
   <export>
     <build_type>ament_python</build_type>

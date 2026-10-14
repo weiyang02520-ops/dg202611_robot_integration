@@ -25,6 +25,35 @@ colcon build --symlink-install --packages-select vision_perception_interfaces vi
 source install/setup.bash
 ```
 
+## Runtime Python pins (NumPy &lt; 2 — required)
+
+`v1_ros` / webcam / offline need:
+
+| Package | Pin |
+|---|---|
+| NumPy | `>=1.26.4,<2` |
+| OpenCV | `opencv-python-headless==4.10.0.84` (full `opencv-python` also OK if same major) |
+| ONNX Runtime | `onnxruntime==1.20.1` (CPU) |
+
+**Install order matters.** NumPy 2.x breaks many OpenCV wheels (`_ARRAY_API not found` / `numpy.core.multiarray failed to import`). Observed on Ubuntu103 when NumPy 2 was present with an older cv2.
+
+```bash
+# Preferred one-shot (after workspace source, from repo or install share):
+python3 -m pip install --user -r src/vision_perception/requirements-runtime.txt
+# same file also installed as:
+#   share/vision_perception/requirements-runtime.txt
+
+# Or strictly in this order:
+python3 -m pip install --user 'numpy>=1.26.4,<2'
+python3 -m pip install --user 'opencv-python-headless==4.10.0.84'
+python3 -m pip install --user 'onnxruntime==1.20.1'
+
+# Verify (must show numpy 1.x)
+python3 -c "import numpy,cv2,onnxruntime as o; print(numpy.__version__, cv2.__version__, o.__version__)"
+```
+
+Do **not** `pip install -U numpy` afterward. `setup.py` / `runtime_deps.py` encode the same pins; `mode:=v1_ros` refuses to start on NumPy ≥ 2.
+
 ## Local ONNX + manifest (required for v1_ros / offline)
 
 Pipeline expects **YOLO11n-seg** COCO layout (V4 plan):
@@ -143,7 +172,9 @@ ros2 topic hz /dg/vision/detections_2d
 
 If `use_webcam:=true` but no device: webcam publisher FATALS with “Failed to open V4L2/OpenCV device”.
 
-### No `/dev/video` (e.g. current Ubuntu103) — fake Image
+### No `/dev/video` (e.g. Ubuntu103) — fake Image smoke
+
+Owner-verified path (models under `/home/weiyang/vision_models/`):
 
 ```bash
 ros2 launch vision_perception vision.launch.py \
@@ -155,7 +186,11 @@ ros2 launch vision_perception vision.launch.py \
   camera_contract:="DEV_WEBCAM_ONLY / NOT_ZED"
 ```
 
-Do **not** combine `use_webcam:=true` and `use_fake_image:=true`.
+Expect:
+
+- `/dg/vision/status` → `message=V1_ROS_DEV_WEBCAM`, level OK; fields include `empty_detections_healthy=true`
+- `/dg/vision/detections_2d` ~ few Hz; solid-color fake frames often have `detections=[]` — **that is healthy**, not a fault
+- Do **not** combine `use_webcam:=true` and `use_fake_image:=true`
 
 ## Unit tests (no ROS / no camera)
 

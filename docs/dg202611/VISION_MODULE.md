@@ -90,10 +90,18 @@ ros2 launch vision_perception vision.launch.py \
 Without model paths → expect FATAL mentioning `model_path` / manifest hint.
 Without `/dev/video*` → use `use_fake_image:=true` instead of webcam.
 
+### Runtime pins
+
+`numpy>=1.26.4,<2`, `opencv-python-headless==4.10.0.84`, `onnxruntime==1.20.1`
+(see `src/vision_perception/requirements-runtime.txt`). Install NumPy **before**
+OpenCV; NumPy 2.x breaks cv2 (`_ARRAY_API`). Empty `detections=[]` on fake
+frames keeps status OK (`V1_ROS_DEV_WEBCAM` / `empty_detections_healthy=true`).
+
 ## Verification
 
 - Unit tests: `PYTHONPATH=src/vision_perception python3 -m pytest src/vision_perception/test -q`
-- Ubuntu103 (owner): build OK, skeleton OK, `mode:=v1` reject, fake path FATAL without model, 36 passed, no `/dev/video` at last check.
+- Ubuntu103 (owner): build OK, skeleton OK, `mode:=v1` reject, fake-image smoke with
+  local ONNX (~3–4 Hz detections, often empty), status `V1_ROS_DEV_WEBCAM`; watch NumPy&lt;2.
 - Cloud agent: no ROS/camera PASS claims.
 
 ## Existing-module boundary

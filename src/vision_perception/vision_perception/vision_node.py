@@ -19,7 +19,6 @@ from rclpy.node import Node
 from sensor_msgs.msg import Image
 
 from vision_perception.config import (
-    CAMERA_CONTRACT_DEV_WEBCAM,
     CAMERA_CONTRACT_NOT_RUN,
     normalize_ros_node_mode,
     vision_config_from_mapping,
@@ -28,6 +27,8 @@ from vision_perception.frame_worker import LatestFrameWorker
 from vision_perception.message_mapping import try_build_vision_detection_array_msg
 from vision_perception.pipeline import DetectionEngine
 from vision_perception.ros_image_bridge import decode_sensor_image_msg
+from vision_perception.runtime_deps import check_numpy_opencv_compat, check_v1_runtime_imports
+from vision_perception.status_fields import compose_v1_ros_diagnostic
 
 
 class VisionPerceptionNode(Node):
@@ -77,6 +78,7 @@ class VisionPerceptionNode(Node):
         self._image_sub = None
         self._frames_received = 0
         self._last_observation_id = 0
+        self._last_detection_count = 0
         self._implementation_status = "SKELETON_ONLY"
         self._camera_contract = CAMERA_CONTRACT_NOT_RUN
         self._inference_active = False
@@ -148,6 +150,12 @@ class VisionPerceptionNode(Node):
         )
 
     def _init_v1_ros(self) -> None:
+        # Fail fast on NumPy 2.x / missing ORT before opening cameras or models.
+        check_numpy_opencv_compat()
+        notes = check_v1_runtime_imports(require_opencv=False)
+        for line in notes:
+            self.get_logger().info(f"runtime_dep: {line}")
+
         raw = self._param_map()
         # Force documented contract label for this stage.
         if not str(raw.get("camera_contract", "")).strip() or str(
@@ -187,7 +195,8 @@ class VisionPerceptionNode(Node):
         self._camera_subscriptions_active = True
         self.get_logger().warning(
             f"v1_ros DEV_WEBCAM_ONLY / NOT_ZED: subscribing {cfg.rgb_topic}, "
-            f"publishing {detections_topic}; no depth/objects/cmd_vel/ZED SDK"
+            f"publishing {detections_topic}; no depth/objects/cmd_vel/ZED SDK; "
+            "empty detections=[] is healthy for blank fake frames"
         )
 
     def _on_image(self, msg: Image) -> None:
@@ -213,6 +222,7 @@ class VisionPerceptionNode(Node):
             source_kind="LIVE_CAMERA",
         )
         self._last_observation_id = int(batch.key.observation_id)
+        self._last_detection_count = len(batch.detections)
         message = try_build_vision_detection_array_msg(batch)
         self._detections_pub.publish(message)
 
@@ -224,31 +234,35 @@ class VisionPerceptionNode(Node):
         if self._mode == "skeleton":
             status.level = DiagnosticStatus.WARN
             status.message = "SKELETON_ONLY"
+            fields = {
+                "mode": self._mode,
+                "implementation_status": self._implementation_status,
+                "camera_subscriptions_active": "false",
+                "camera_contract": self._camera_contract,
+                "inference_active": "false",
+                "tracking_active": "false",
+                "object_output_active": "false",
+                "control_output_active": "false",
+                "arm_ready": "NO",
+                "v1_detections_interface": "VisionDetectionArray",
+                "v2_objects_interface": "VisionObjectArray",
+            }
         else:
-            status.level = DiagnosticStatus.OK
-            status.message = "V1_ROS_DEV_WEBCAM"
-        dropped = self._worker.dropped if self._worker is not None else 0
-        processed = self._worker.processed if self._worker is not None else 0
-        last_error = self._worker.last_error if self._worker is not None else ""
-        fields = {
-            "mode": self._mode,
-            "implementation_status": self._implementation_status,
-            "camera_subscriptions_active": str(self._camera_subscriptions_active).lower(),
-            "camera_contract": self._camera_contract,
-            "inference_active": str(self._inference_active).lower(),
-            "tracking_active": "false",
-            "object_output_active": "false",
-            "control_output_active": "false",
-            "arm_ready": "NO",
-            "v1_detections_interface": "VisionDetectionArray",
-            "v2_objects_interface": "VisionObjectArray",
-            "frames_received": str(self._frames_received),
-            "frames_processed": str(processed),
-            "frames_dropped": str(dropped),
-            "last_observation_id": str(self._last_observation_id),
-            "last_worker_error": last_error or "",
-            "rgb_topic": str(self.get_parameter("rgb_topic").value),
-        }
+            dropped = self._worker.dropped if self._worker is not None else 0
+            processed = self._worker.processed if self._worker is not None else 0
+            last_error = self._worker.last_error if self._worker is not None else ""
+            level, msg, fields = compose_v1_ros_diagnostic(
+                frames_received=self._frames_received,
+                frames_processed=processed,
+                frames_dropped=dropped,
+                last_observation_id=self._last_observation_id,
+                last_detection_count=self._last_detection_count,
+                last_worker_error=last_error or "",
+                camera_contract=self._camera_contract,
+                rgb_topic=str(self.get_parameter("rgb_topic").value),
+            )
+            status.level = level
+            status.message = msg
         status.values = [KeyValue(key=key, value=value) for key, value in fields.items()]
         message.status = [status]
         self._status_publisher.publish(message)

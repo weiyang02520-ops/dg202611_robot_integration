@@ -32,11 +32,19 @@ class WebcamPublisherNode(Node):
         if rate <= 0:
             raise ValueError("frame_rate_hz must be > 0")
 
+        from vision_perception.runtime_deps import (
+            OPENCV_PIP,
+            NUMPY_PIP,
+            check_numpy_opencv_compat,
+        )
+
+        check_numpy_opencv_compat()
         try:
             import cv2  # type: ignore
         except ImportError as exc:
             raise RuntimeError(
-                "OpenCV (cv2) is required for vision_webcam_publisher"
+                "OpenCV (cv2) is required for vision_webcam_publisher. "
+                f"Install after {NUMPY_PIP}: pip install --user '{OPENCV_PIP}'"
             ) from exc
 
         device = int(self.get_parameter("video_device").value)
