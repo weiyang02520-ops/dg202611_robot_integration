@@ -170,7 +170,12 @@ def test_v1_ros_still_rejects_enable_objects(tmp_path: Path):
 
 
 def test_v1_evidence_templates_exist():
-    root = Path(__file__).resolve().parents[3] / "evidence" / "vision" / "templates"
+    """Templates live inside the package so isolated two-package sync still passes."""
+    root = Path(__file__).resolve().parents[1] / "evidence" / "templates"
+    assert root.is_dir(), (
+        "expected src/vision_perception/evidence/templates "
+        "(not the monorepo evidence/vision/ tree)"
+    )
     for stage in ("V1_OFFLINE", "V1_ROS"):
         base = root / stage
         assert (base / "metadata.json.template").is_file()

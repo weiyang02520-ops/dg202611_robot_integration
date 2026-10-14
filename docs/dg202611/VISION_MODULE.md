@@ -79,6 +79,8 @@ Format sample: `examples/golden_format_batch.json` (not a real ONNX golden).
 Isolated two-package sync: use
 `bash src/vision_perception/scripts/bootstrap_isolated_ws.sh` (restores `+x`,
 package-local LF attributes, pytest; optional `--build`).
+V1 evidence shells live under `src/vision_perception/evidence/templates/`
+(installed to share); pytest does not need the monorepo `evidence/` tree.
 
 ## Public contract (V4)
 

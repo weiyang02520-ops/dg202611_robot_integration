@@ -45,6 +45,7 @@ def test_cmakelists_installs_libexec_scripts():
     assert "install(CODE" in text
     assert ".gitattributes" in text
     assert "ensure_scripts_executable.sh" in text
+    assert "install(DIRECTORY launch config examples evidence" in text
     for name in EXEC_NAMES:
         assert f"scripts/{name}" in text
 

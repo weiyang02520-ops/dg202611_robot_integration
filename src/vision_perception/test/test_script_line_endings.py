@@ -80,3 +80,4 @@ def test_bootstrap_isolated_ws_script_exists():
     assert "source_ros_setup" in text
     assert "set +u" in text
     assert "set -u" in text
+    assert "evidence/templates" in text

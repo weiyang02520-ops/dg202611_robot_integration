@@ -7,6 +7,7 @@
 | `make_smoke_rgb_npy.py` | Regenerate `smoke_rgb_hint.npy` |
 | `golden_format_batch.json` | Offline JSON **format** sample (empty + one bottle); not a real ONNX golden |
 | `eval_annotations.example.json` | Example V1 bbox GT for offline precision/recall CLI |
+| `../evidence/templates/` | V1_OFFLINE / V1_ROS metadata shells (also in share/) |
 
 Copy the manifest template next to your local ONNX (outside git), fill hashes:
 

@@ -27,7 +27,9 @@ Independent manipulation-vision ROS2 package (arm-independent).
 | V3 跟踪 | Needs separate auth; `enable_tracking` must stay false |
 | 真 ONNX 黄金样例比对 | Weights stay out of git; synthetic postprocess goldens cover format only |
 
-V1 evidence empty shells: `evidence/vision/templates/V1_OFFLINE/` and `V1_ROS/`.
+V1 evidence empty shells (package-local, works in isolated two-package sync):
+`src/vision_perception/evidence/templates/{V1_OFFLINE,V1_ROS}/`
+(also installed under `share/vision_perception/evidence/templates/`).
 
 **Hard rules:** the node never auto-downloads weights; `.onnx` / `.pt` must stay out of git (see root `.gitignore`). License of upstream YOLO/COCO weights is separate from this repo — review before use; do not publish or redistribute weights until cleared.
 

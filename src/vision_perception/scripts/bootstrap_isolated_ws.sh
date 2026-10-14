@@ -107,6 +107,10 @@ if [[ "${DO_BUILD}" -eq 1 ]]; then
   bash src/vision_perception/scripts/check_ament_prefix_hook.sh
 fi
 
+# Evidence templates are package-local (no monorepo evidence/ tree required).
+test -f src/vision_perception/evidence/templates/V1_ROS/metadata.json.template
+echo "OK: package-local V1 evidence templates present"
+
 PYTHONPATH=src/vision_perception python3 -m pytest src/vision_perception/test -q
 
 cat <<'EOF'
@@ -123,6 +127,10 @@ ros2 launch vision_perception vision.launch.py \
   model_path:=$HOME/vision_models/yolo11n-seg.onnx \
   model_manifest_path:=$HOME/vision_models/model_manifest.json \
   camera_contract:="DEV_WEBCAM_ONLY / NOT_ZED"
+
+# V1 evidence shells (package / share — no repo-root evidence/ needed):
+#   src/vision_perception/evidence/templates/V1_ROS/
+#   $SHARE/evidence/templates/V1_ROS/
 
 # Offline eval (no ROS) after you have detections JSON + annotations:
 #   ros2 run vision_perception vision_offline_detect -- \
