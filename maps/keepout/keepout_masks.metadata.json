@@ -1,0 +1,27 @@
+{
+  "map_yaml_sha256": "3ab27832dbeee7eba4192d67e10e9d25facdf78ccf5d3e6eca46bc3b25b156db",
+  "map_pgm_sha256": "952e407bd2c076ac77907338a8c5cc7ce51f2e38e0f0dfab5fbd31cc0d924435",
+  "route_sha256": "da1eda6d946d7c7bc6f26479f30377bd4db6f65bf274c6f943ecf11b1b542d96",
+  "nav2_params_sha256": "0d7e30a82252eb86b1f66211876d10061965c3aa8e197e8106bb40a0085177cb",
+  "width": 391,
+  "height": 649,
+  "resolution_m": 0.025,
+  "origin": [
+    -3.5,
+    -3.15,
+    0.0
+  ],
+  "zones": {},
+  "keepout_mode": "all_free",
+  "enabled_hard_keepout_count": 0,
+  "global_mask": {
+    "hard_cells": 0,
+    "weighted_cells": 0,
+    "free_cells": 253759
+  },
+  "local_mask": {
+    "hard_cells": 0,
+    "weighted_cells": 0,
+    "free_cells": 253759
+  }
+}

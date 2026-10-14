@@ -1,0 +1,57 @@
+# ROS 2 / colcon build outputs
+build/
+install/
+log/
+
+# Local agent and editor state
+.codex
+.agents/
+.superpowers/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.bak
+
+# Python cache and test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Large model artifacts
+*.engine
+*.onnx
+*.pt
+*.pth
+*.weights
+
+# Runtime logs and dumps
+*.log
+core
+core.*
+frames_*.gv
+frames_*.pdf
+runs/
+# Derived from the current map and complete patrol annotation at patrol startup.
+maps/keepout/
+
+# Local secrets and machine-specific configuration
+.env
+.env.*
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+
+# SolidWorks temporary lock files
+~$*

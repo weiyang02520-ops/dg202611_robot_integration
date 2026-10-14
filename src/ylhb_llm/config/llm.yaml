@@ -1,0 +1,258 @@
+inspection_task_node:
+  ros__parameters:
+    text_command_topic: /inspection_ai/task_text_command
+    localized_objects_topic: /perception/localized_objects
+    task_event_topic: /inspection_ai/task_event
+    task_status_topic: /inspection_ai/task_status
+    say_text_topic: /inspection_ai/say_text
+    task_context_status_topic: /inspection_ai/task_context_status
+    start_demo_service_name: /inspection_ai/start_demo_task
+    system_mode_topic: /inspection_ai/system_mode
+    dashscope_base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    chat_model: qwen3.7-plus
+    request_timeout_sec: 12.0
+    enable_llm_parse: false
+    publish_raw_json: true
+
+inspection_agent_node:
+  ros__parameters:
+    agent_request_topic: /inspection_ai/agent_request
+    agent_status_topic: /inspection_ai/agent_status
+    agent_event_topic: /inspection_ai/agent_event
+    agent_chat_topic: /inspection_ai/agent_chat
+    voice_session_command_topic: /inspection_ai/voice_session_command
+    motion_command_topic: /inspection_ai/motion_command
+    base_skill_command_topic: /inspection_ai/base_skill_command
+    system_command_topic: /inspection_ai/system_command
+    patrol_command_topic: /patrol/command
+    system_status_topic: /inspection_ai/system_status
+    patrol_status_topic: /patrol/status
+    voice_session_status_topic: /inspection_ai/voice_session_status
+    say_text_topic: /inspection_ai/say_text
+    planner_provider_name: dashscope
+    planner_base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    planner_model: qwen3.7-plus
+    planner_api_key_env: DASHSCOPE_API_KEY
+    planner_api_key_required: true
+    planner_chat_path: /chat/completions
+    planner_models_path: /models
+    planner_extra_body_json: '{"enable_thinking": false}'
+    request_timeout_sec: 12.0
+    enable_llm_planner: true
+    offline_safe_mode: true
+    workspace_dir: ""
+    route_directory: ""
+    patrol_route_path: auto
+    route_file_path: auto  # deprecated alias; patrol_route_path takes precedence
+    robot_capabilities_file: robot_capabilities.yaml
+    knowledge_globs:
+      - README.md
+      - docs/**/*.md
+      - src/电力巡检机器人使用与调试手册.md
+    diagnostics_config_file: agent_diagnostics.yaml
+    recovery_config_file: agent_recovery.yaml
+    mobile_bridge_port: 8000
+    enable_agent_health_monitor: true
+    enable_agent_auto_recovery: false
+    health_monitor_interval_sec: 2.0
+    health_issue_debounce_sec: 5.0
+    health_recovery_cooldown_sec: 60.0
+    max_agent_steps: 12
+    max_side_effect_tools_per_turn: 4
+    max_identical_tool_calls: 2
+
+basic_motion_command_node:
+  ros__parameters:
+    motion_command_topic: /inspection_ai/motion_command
+    system_mode_topic: /inspection_ai/system_mode
+    cmd_vel_topic: /cmd_vel_manual
+    manual_authorization_topic: /dg/control/manual_authorized
+    say_text_topic: /inspection_ai/say_text
+    zlac_status_topic: /zlac8015d/status
+    linear_speed: 0.12
+    angular_speed: 0.45
+    motion_duration_sec: 1.0
+    publish_rate_hz: 20.0
+    require_chassis_online: true
+    chassis_status_max_age_sec: 2.5
+
+base_motion_skill_node:
+  ros__parameters:
+    base_skill_command_topic: /inspection_ai/base_skill_command
+    base_skill_status_topic: /inspection_ai/base_skill_status
+    system_mode_topic: /inspection_ai/system_mode
+    zlac_status_topic: /zlac8015d/status
+    cmd_vel_topic: /cmd_vel_manual
+    manual_authorization_topic: /dg/control/manual_authorized
+    odom_frame: odom
+    base_frame: base_footprint
+    linear_speed: 0.10
+    angular_speed: 0.35
+    publish_rate_hz: 20.0
+    max_angle_deg: 180.0
+    max_distance_m: 0.5
+    timeout_sec: 20.0
+    require_chassis_online: true
+    chassis_status_max_age_sec: 2.5
+
+inspection_display_ui_node:
+  ros__parameters:
+    text_command_topic: /inspection_ai/text_command
+    system_mode_topic: /inspection_ai/system_mode
+    system_command_topic: /inspection_ai/system_command
+    system_status_topic: /inspection_ai/system_status
+    task_event_topic: /inspection_ai/task_event
+    task_status_topic: /inspection_ai/task_status
+    say_text_topic: /inspection_ai/say_text
+    task_context_status_topic: /inspection_ai/task_context_status
+    voice_session_status_topic: /inspection_ai/voice_session_status
+    voice_command_event_topic: /inspection_ai/voice_command_event
+    voice_status_topic: /inspection_ai/voice_status
+    agent_status_topic: /inspection_ai/agent_status
+    agent_event_topic: /inspection_ai/agent_event
+    agent_chat_topic: /inspection_ai/agent_chat
+    start_voice_session_service_name: /inspection_ai/start_voice_session
+    stop_voice_session_service_name: /inspection_ai/stop_voice_session
+    capture_voice_service_name: /inspection_ai/capture_voice
+    localized_objects_topic: /perception/localized_objects
+    cmd_vel_topic: /cmd_vel_manual
+    manual_authorization_topic: /dg/control/manual_authorized
+    initial_system_mode: ready
+    fullscreen: true
+    display: ":0"
+    force_local_display: true
+    ui_safe_margin_left: 28
+    ui_safe_margin_right: 28
+    ui_safe_margin_top: 24
+    ui_safe_margin_bottom: 28
+
+system_supervisor_node:
+  ros__parameters:
+    system_command_topic: /inspection_ai/system_command
+    system_status_topic: /inspection_ai/system_status
+    system_mode_topic: /inspection_ai/system_mode
+    cmd_vel_topic: /cmd_vel_manual
+    manual_authorization_topic: /dg/control/manual_authorized
+    base_backend: zlac
+    zlac_status_topic: /zlac8015d/status
+    chassis_status_max_age_sec: 2.5
+    workspace_dir: ""
+    route_directory: ""
+    patrol_route_path: auto
+    ros_distro: humble
+    map_output_dir: ""
+    mapping3d_output_dir: ""
+    default_navigation_map: ""
+    perception_model_path: ""
+    embedded_task_layer: true
+    enable_voice: false
+    enable_voice_session: false
+    enable_capture_voice: false
+    enable_tts: false
+    audio_device: default
+    audio_input_device: default
+    audio_output_device: default
+    asr_model: qwen3-asr-flash
+    tts_model: qwen3-tts-flash
+    tts_voice: Serena
+    tts_language_type: Chinese
+    dashscope_base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    recovery_config_file: agent_recovery.yaml
+
+voice_input_node:
+  ros__parameters:
+    text_command_topic: /inspection_ai/text_command
+    voice_command_event_topic: /inspection_ai/voice_command_event
+    capture_voice_service_name: /inspection_ai/capture_voice
+    audio_device: default
+    audio_input_device: default
+    record_sec: 4.0
+    sample_rate: 16000
+    enabled: false
+    dashscope_base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    asr_model: qwen3-asr-flash
+    request_timeout_sec: 15.0
+    publish_legacy_text_command: false
+
+voice_session_node:
+  ros__parameters:
+    agent_request_topic: /inspection_ai/agent_request
+    agent_chat_topic: /inspection_ai/agent_chat
+    voice_session_command_topic: /inspection_ai/voice_session_command
+    voice_session_status_topic: /inspection_ai/voice_session_status
+    say_text_topic: /inspection_ai/say_text
+    voice_status_topic: /inspection_ai/voice_status
+    start_voice_session_service_name: /inspection_ai/start_voice_session
+    stop_voice_session_service_name: /inspection_ai/stop_voice_session
+    audio_device: default
+    audio_input_device: default
+    audio_output_device: default
+    voice_cue_enabled: true
+    enabled: false
+    auto_start_standby: true
+    silent_start: true
+    local_kws_enabled: true
+    kws_encoder: ~/.local/share/ylhb/kws/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20/encoder-epoch-13-avg-2-chunk-8-left-64.int8.onnx
+    kws_decoder: ~/.local/share/ylhb/kws/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20/decoder-epoch-13-avg-2-chunk-8-left-64.onnx
+    kws_joiner: ~/.local/share/ylhb/kws/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20/joiner-epoch-13-avg-2-chunk-8-left-64.int8.onnx
+    kws_tokens: ~/.local/share/ylhb/kws/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20/tokens.txt
+    kws_keywords: ~/.local/share/ylhb/kws/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20/keywords.txt
+    kws_keywords_score: 1.5
+    kws_keywords_threshold: 0.20
+    agent_response_timeout_sec: 30.0
+    dashscope_base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    asr_model: qwen3-asr-flash
+    request_timeout_sec: 15.0
+    wake_phrase: 小零小零
+    wake_aliases: [小林小林, 小玲小玲]
+    wake_match_threshold: 0.55
+    sample_rate: 16000
+    frame_ms: 30
+    energy_threshold: 800
+    vad_silence_sec: 0.85
+    min_voice_sec: 0.5
+    max_utterance_sec: 8.0
+    session_idle_timeout_sec: 35.0
+    max_listen_wait_sec: 8.0
+    voice_start_frames_required: 4
+    asr_empty_silent_first: true
+    asr_fail_prompt_threshold: 2
+    asr_fail_standby_threshold: 3
+    post_event_listen_pause_sec: 3.0
+    ignore_empty_asr_after_event_sec: 6.0
+    context_followup_timeout_sec: 12.0
+    start_prompt_cooldown_sec: 8.0
+    repeat_start_feedback: false
+    pre_roll_sec: 0.4
+    command_vad_silence_sec: 1.25
+    command_min_voice_sec: 0.8
+    wait_wake_threshold_multiplier: 1.8
+    tts_tail_pause_sec: 0.9
+    debug_save_asr_audio: false
+    debug_audio_dir: /tmp/ylhb_voice_debug
+    debug_audio_keep: 20
+    debug_state_transitions: false
+
+voice_output_node:
+  ros__parameters:
+    say_text_topic: /inspection_ai/say_text
+    voice_status_topic: /inspection_ai/voice_status
+    patrol_event_topic: /patrol/event
+    patrol_voice_enabled: true
+    patrol_voice_config_file: patrol_voice.yaml
+    patrol_voice_inventory_dir: ~/.local/share/ylhb/patrol_voice
+    enabled: false
+    tts_enabled: false
+    audio_device: default
+    audio_output_device: default
+    dashscope_base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    tts_model: qwen3-tts-flash
+    tts_voice: Serena
+    tts_language_type: Chinese
+    assistant_tts_tempo: 1.15
+    request_timeout_sec: 10.0
+    enable_tts_cache: true
+    split_long_tts: true
+    tts_segment_max_chars: 70
+    preserve_long_task_tts_single_request: true
+    interrupt_current_playback: true

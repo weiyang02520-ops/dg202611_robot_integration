@@ -1,0 +1,40 @@
+zlac8015d_canopen_controller:
+  ros__parameters:
+    # 车轮半径，单位：米。影响速度换算和里程计距离；实测轮直径后填“直径 / 2”。
+    wheel_radius: 0.0865
+    # 左右驱动轮接地点中心之间的距离，单位：米。影响原地旋转角速度和里程计转角。
+    wheel_track: 0.4008
+    # 底盘最大线速度，单位：米/秒。cmd_vel 超过该值会被限幅，调大前确认电机和场地安全。
+    max_linear_speed: 0.35
+    # 当前实车最佳转弯基线的底盘余量；cmd_vel 超过该值会被限幅。
+    max_angular_speed: 0.70
+    # 驱动器低 16 位通道连接左轮，高 16 位通道连接右轮。
+    low_channel_is_left: true
+    # 当前实车前进方向与 ROS base_link 一致；角速度方向保持不变。
+    linear_axis_direction: 1.0
+    # 通道极性：逻辑轮正向转速转换为驱动器通道命令时的方向系数，只允许 1.0 或 -1.0。
+    low_channel_direction: 1.0
+    # 通道极性：逻辑轮正向转速转换为驱动器通道命令时的方向系数，只允许 1.0 或 -1.0。
+    high_channel_direction: -1.0
+    # 里程计父坐标系，通常保持 odom。
+    odom_frame: odom
+    # 底盘坐标系，当前系统使用 base_footprint 作为平面运动基座。
+    base_frame: base_footprint
+    # 是否由底盘控制器直接发布 odom -> base_frame 的 TF。bringup 中由 EKF 发布，通常保持 false。
+    publish_tf: false
+
+# ---------------------------------------------------------------------------
+# STM32 serial fallback backend, active only with base_backend:=stm32.
+# ROS 2 matches a parameter file by NODE NAME, so this second top-level key is
+# required: the zlac8015d_canopen_controller block above does not reach this node.
+# Only wheel_track is listed. base_controller declares no wheel_radius and needs
+# none, because it transmits wheel linear velocity as mm/s int16 and the STM32
+# firmware owns the radius conversion. Do not pad this block with parameters the
+# node does not consume.
+# Keep wheel_track numerically identical to the zlac block above; the config
+# consistency test in test/test_base_kinematics_config_chain.py asserts that.
+# ---------------------------------------------------------------------------
+base_controller:
+  ros__parameters:
+    # 左右驱动轮接地点中心之间的距离，单位：米。与上方 zlac 后端保持一致。
+    wheel_track: 0.4008

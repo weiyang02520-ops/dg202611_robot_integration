@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# This wrapper is installed by the DG workspace but always runs the protected
+# base UI. Keeping the script here lets the autostart entry be removed together
+# with the DG integration release without overlaying ylhb_llm at runtime.
+integration_ws="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+base_ws="${DG_BASE_WS:-/home/nvidia/ros2_DL}"
+export WS_DIR="${base_ws}"
+LOG_DIR="${integration_ws}/runs/ui_autostart"
+mkdir -p "${LOG_DIR}"
+LOG_FILE="${LOG_DIR}/inspection_ui_$(date +%Y%m%d_%H%M%S).log"
+RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp}/ylhb"
+mkdir -p "${RUNTIME_DIR}"
+chmod 700 "${RUNTIME_DIR}" 2>/dev/null || true
+STOPPED=false
+CHILD_PID=""
+trap 'STOPPED=true; [ -n "${CHILD_PID}" ] && kill -TERM "${CHILD_PID}" 2>/dev/null || true' INT TERM
+running_stack() { pgrep -f 'inspection_agent_node|basic_motion_command_node|base_motion_skill_node|voice_input_node|voice_session_node|voice_output_node|system_supervisor_node|inspection_display_ui_node' >/dev/null; }
+wait_for_old_stack() { while running_stack; do sleep 1; done; }
+BASE_RUNNER="${base_ws}/scripts/run_on_jetson.sh"
+if [ ! -x "${BASE_RUNNER}" ]; then
+  echo "基础系统启动脚本不存在：${BASE_RUNNER}" >&2
+  exit 2
+fi
+if ! WS_DIR="${base_ws}" "${BASE_RUNNER}" inspection_preflight >>"${LOG_FILE}" 2>&1; then
+  echo "基础 UI 自启动静态预检失败；详情：${LOG_FILE}" >&2
+  exit 2
+fi
+restart_times=()
+while [ "${STOPPED}" = false ]; do
+  if running_stack; then
+    echo "inspection 已运行，跳过重复启动" >>"${LOG_FILE}"
+    exit 0
+  fi
+  SESSION_ID="$(cat /proc/sys/kernel/random/uuid 2>/dev/null || printf '%s-%s-%s' "$$" "$(date +%s%N)" "${RANDOM}")"
+  STOP_MARKER="${RUNTIME_DIR}/inspection-stop-$$"
+  rm -f "${STOP_MARKER}"
+  export YLHB_INSPECTION_SESSION_ID="${SESSION_ID}"
+  export YLHB_INSPECTION_STOP_MARKER="${STOP_MARKER}"
+  echo "$(date -Is) starting base inspection stack DISPLAY=${DISPLAY:-}" >>"${LOG_FILE}"
+  if [ "${YLHB_UI_INHIBIT_IDLE:-true}" = "true" ] && systemd-inhibit --help 2>&1 | grep -q -- '--what='; then
+    systemd-inhibit --what=idle:sleep --why='YLHB inspection console' --mode=block "${BASE_RUNNER}" inspection fullscreen:=true mobile_bridge_managed_externally:=true auto_start_mobile_bridge:=false >>"${LOG_FILE}" 2>&1 &
+  else
+    "${BASE_RUNNER}" inspection fullscreen:=true mobile_bridge_managed_externally:=true auto_start_mobile_bridge:=false >>"${LOG_FILE}" 2>&1 &
+  fi
+  CHILD_PID=$!
+  wait "${CHILD_PID}" || true
+  CHILD_PID=""
+  wait_for_old_stack
+  marker_session=""
+  if [ -f "${STOP_MARKER}" ]; then
+    IFS= read -r marker_session <"${STOP_MARKER}" || true
+  fi
+  if [ -n "${marker_session}" ] && [ "${marker_session}" = "${SESSION_ID}" ]; then
+    rm -f "${STOP_MARKER}"
+    echo "$(date -Is) intentional shutdown session=${SESSION_ID}" >>"${LOG_FILE}"
+    break
+  fi
+  if [ -f "${STOP_MARKER}" ]; then
+    echo "$(date -Is) ignoring mismatched shutdown marker" >>"${LOG_FILE}"
+    rm -f "${STOP_MARKER}"
+  fi
+  [ "${STOPPED}" = false ] || break
+  [ "${YLHB_INSPECTION_AUTO_RESTART:-true}" = "true" ] || break
+  now=$(date +%s); kept=()
+  for t in "${restart_times[@]}"; do [ $((now - t)) -lt 60 ] && kept+=("${t}"); done
+  restart_times=("${kept[@]}")
+  if [ "${#restart_times[@]}" -ge 3 ]; then echo "$(date -Is) inspection crash-loop limit reached; stop restarting" >>"${LOG_FILE}"; break; fi
+  restart_times+=("${now}")
+  sleep 4
+done
