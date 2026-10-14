@@ -24,8 +24,9 @@ class VisionConfig:
     model_path: str = ""
     model_manifest_path: str = ""
     detector_enabled: bool = False
-    # V2/V3 gates — must stay false until explicitly authorized (no pipeline yet).
+    # V2 gate: default false; true allowed only for mode=v1_ros (depth+/objects).
     enable_objects: bool = False
+    # V3 gate — must stay false until tracking is authorized.
     enable_tracking: bool = False
     # Legacy synonym of enable_tracking (kept for existing YAML / tests).
     tracking_enabled: bool = False
@@ -218,23 +219,27 @@ def validate_vision_config(cfg: VisionConfig) -> None:
             raise ValueError(f"target_classes contains unsupported class {name!r}")
     if cfg.min_depth_m <= 0 or cfg.max_depth_m <= cfg.min_depth_m:
         raise ValueError("depth range must satisfy 0 < min_depth_m < max_depth_m")
-    # V2/V3 business pipelines are not authorized: refuse any enable flag.
-    if cfg.enable_objects:
-        raise ValueError(
-            "enable_objects=true is not authorized yet "
-            "(no /objects publish / depth pairing in this stage)"
-        )
+    if cfg.sync_tolerance_sec <= 0:
+        raise ValueError("sync_tolerance_sec must be > 0")
+    # V3 tracking is not authorized.
     if cfg.enable_tracking or cfg.tracking_enabled:
         raise ValueError(
             "enable_tracking/tracking_enabled=true is not authorized yet "
             "(no tracker in this stage)"
         )
     if cfg.mode == "skeleton":
-        if cfg.detector_enabled or cfg.publish_debug_image:
-            raise ValueError("skeleton mode forbids enabling detector/debug")
+        if cfg.detector_enabled or cfg.publish_debug_image or cfg.enable_objects:
+            raise ValueError(
+                "skeleton mode forbids enabling detector/debug/enable_objects"
+            )
         if cfg.backend != "unconfigured":
             raise ValueError("skeleton mode requires backend=unconfigured")
     if cfg.mode == "offline":
+        if cfg.enable_objects:
+            raise ValueError(
+                "enable_objects=true is only allowed for mode=v1_ros "
+                "(offline CLI stays 2D-only)"
+            )
         if cfg.backend != "onnxruntime_cpu":
             raise ValueError("offline mode requires backend=onnxruntime_cpu")
         if not cfg.model_path:
@@ -252,6 +257,11 @@ def validate_vision_config(cfg: VisionConfig) -> None:
             raise ValueError("v1_ros mode requires detector_enabled=true")
         if not cfg.rgb_topic:
             raise ValueError("v1_ros mode requires rgb_topic")
+        if cfg.enable_objects:
+            if not cfg.depth_topic:
+                raise ValueError("enable_objects=true requires depth_topic")
+            if not cfg.camera_info_topic:
+                raise ValueError("enable_objects=true requires camera_info_topic")
         contract = cfg.camera_contract.upper()
         if "DEV_WEBCAM_ONLY" not in contract:
             raise ValueError(
@@ -262,6 +272,10 @@ def validate_vision_config(cfg: VisionConfig) -> None:
             raise ValueError(
                 "v1_ros must not claim a ZED camera_contract; use DEV_WEBCAM_ONLY / NOT_ZED"
             )
+    elif cfg.enable_objects:
+        raise ValueError(
+            "enable_objects=true is only allowed for mode=v1_ros"
+        )
 
 
 def load_model_manifest(path: str) -> ModelManifest:

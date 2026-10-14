@@ -37,15 +37,17 @@ does **not** auto-download models and weights must not be committed.
 - Publishes `VisionDetectionArray` on `/dg/vision/detections_2d` + status
   (`source_session_id`, `backend`, STALE when input age &gt; `input_stale_sec`).
 - Optional `publish_debug_image:=true` → `/dg/vision/debug_image` ≤2 Hz (default off).
-- Does **not** publish `/dg/vision/objects`, depth, tracking, TF, or cmd_vel.
-- Config gates `enable_objects` / `enable_tracking` default **false** (true rejected until authorized).
-- `VisionObject*` message shapes are frozen in `vision_perception_interfaces` (types only).
-- `orientation_valid` remains false in V2-shaped placeholders; `ARM_READY=NO`.
+- Default does **not** publish `/dg/vision/objects`, tracking, TF, or cmd_vel.
+- `enable_objects` / `enable_tracking` default **false**. `enable_objects:=true`
+  (v1_ros only) runs V2 depth pairing and publishes `VisionObjectArray`.
+  `enable_tracking:=true` remains rejected.
+- `orientation_valid` remains false; `ARM_READY=NO`.
 
 Optional launch helpers:
 
 - `use_webcam:=true` → `vision_webcam_publisher` (V4L2/OpenCV, e.g. laptop camera).
 - `use_fake_image:=true` + `fake_image_path:=/ABS/...` → file/synthetic RGB.
+- `use_fake_depth:=true` + `enable_objects:=true` → fake 32FC1 + CameraInfo → `/objects`.
 - `publish_debug_image:=true` → annotated overlay (no GUI).
 
 ### Model contract (owner-prepared artifacts)
@@ -87,16 +89,18 @@ V1 evidence shells live under `src/vision_perception/evidence/templates/`
 | Topic | Type | Stage |
 |---|---|---|
 | `/dg/vision/detections_2d` | `VisionDetectionArray` | V1 offline + v1_ros |
-| `/dg/vision/objects` | `VisionObjectArray` | V2/V3 (not published) |
+| `/dg/vision/objects` | `VisionObjectArray` | V2 when `enable_objects:=true` |
 | `/dg/vision/status` | `DiagnosticArray` | scaffold onward |
 | `/dg/vision/debug_image` | `sensor_msgs/Image` | V1 optional, default off |
 | `/dg/vision/webcam/image_raw` | `sensor_msgs/Image` | optional DEV webcam / fake |
+| `/dg/vision/fake/depth` | `sensor_msgs/Image` 32FC1 | optional fake depth |
+| `/dg/vision/fake/camera_info` | `sensor_msgs/CameraInfo` | optional fake calib |
 
 ## 未做项（NOT_RUN）
 
 - Real-time camera acceptance / bottle-cup photo non-empty detection smoke
 - Navigation, chassis, `cmd_vel`, MODEL bringup
-- ZED RGB-D contract and depth pairing (V2)
+- Real ZED RGB-D registration / V2 accuracy vs independent surface truth
 - `/objects`, tracking (V2/V3)
 - True ONNX golden comparison against committed weights (weights stay out of git)
 

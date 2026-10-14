@@ -13,6 +13,7 @@ EXEC_NAMES = (
     "vision_offline_detect",
     "vision_webcam_publisher",
     "vision_fake_image_publisher",
+    "vision_fake_depth_publisher",
 )
 
 

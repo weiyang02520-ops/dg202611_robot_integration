@@ -20,7 +20,7 @@ _RUNTIME_REQUIRES = [
 
 setup(
     name=PACKAGE_NAME,
-    version="0.1.7",
+    version="0.1.8",
     packages=[PACKAGE_NAME],
     # Intentionally empty: CMake installs launch/config/examples/package.xml,
     # libexec scripts under lib/vision_perception/, and ament_package() creates
@@ -31,7 +31,7 @@ setup(
     zip_safe=True,
     maintainer="liaojingwu20041031",
     maintainer_email="206929594+liaojingwu20041031@users.noreply.github.com",
-    description="Independent manipulation-vision: skeleton, offline V1, optional v1_ros webcam.",
+    description="Independent manipulation-vision: skeleton, offline V1, v1_ros, optional V2 objects.",
     license="Apache-2.0",
     tests_require=["pytest"],
 )

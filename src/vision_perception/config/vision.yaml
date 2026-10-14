@@ -13,14 +13,16 @@ vision_perception_node:
     model_path: ""
     model_manifest_path: ""
 
-    # V2/V3 gates — MUST remain false until separately authorized.
-    # Opening these does not implement depth/tracking; config validation rejects true.
+    # V2: enable_objects default false. true only with mode:=v1_ros (depth+/objects).
+    # V3: enable_tracking stays false (true rejected).
     enable_objects: false
     enable_tracking: false
     tracking_enabled: false  # legacy synonym of enable_tracking
 
-    # Dev webcam default topic. ZED topic names are reserved for a later stage
-    # and are NOT the v1_ros camera_contract (DEV_WEBCAM_ONLY / NOT_ZED).
+    # Dev webcam default RGB. Depth/CameraInfo names are configurable subscribers
+    # only (ZED defaults below are topic names, not a ZED camera_contract).
+    # Fake smoke: use_fake_depth:=true remaps to /dg/vision/fake/{depth,camera_info}.
+    # camera_contract for v1_ros remains DEV_WEBCAM_ONLY / NOT_ZED.
     rgb_topic: /dg/vision/webcam/image_raw
     depth_topic: /zed/zed_node/depth/depth_registered
     camera_info_topic: /zed/zed_node/rgb/color/rect/camera_info
@@ -32,7 +34,7 @@ vision_perception_node:
     image_frame_id: webcam_optical_frame
     camera_contract: NOT_RUN
 
-    # V4 plan defaults; V1 does not run depth/sync/tracking pipelines.
+    # V4 plan defaults. Depth/sync used only when enable_objects:=true.
     output_frame_policy: input_optical_header
     sync_tolerance_sec: 0.010
     min_depth_m: 0.5

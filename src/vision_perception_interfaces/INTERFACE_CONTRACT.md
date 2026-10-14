@@ -3,7 +3,7 @@
 | Topic | Message | First publish stage |
 |---|---|---|
 | `/dg/vision/detections_2d` | `VisionDetectionArray` | V1 |
-| `/dg/vision/objects` | `VisionObjectArray` | **V2 only (not authorized yet)** |
+| `/dg/vision/objects` | `VisionObjectArray` | **V2** (`enable_objects:=true` only) |
 | `/dg/vision/status` | `diagnostic_msgs/DiagnosticArray` | V0+ |
 | `/dg/vision/debug_image` | `sensor_msgs/Image` | V1 optional, default off |
 
@@ -15,19 +15,20 @@
 
 - `orientation_valid` is **always false** through V1–V3; orientation components are NaN when unknown.
 - `position_valid=true` is **not** arm authorization. `ARM_READY` is a status diagnostic field only (`NO` until an arm stage is authorized).
-- V1 must not publish `/dg/vision/objects`.
+- Default runtime keeps `enable_objects:=false` (V1 path: detections only, no `/objects`).
+- With `mode:=v1_ros` and `enable_objects:=true`, the node may publish `/dg/vision/objects` after depth + CameraInfo pairing. Missing depth/calibration → `position_valid=false` / `DEPTH_UNPAIRED` (or status degrade); never forge 3D.
 - V2: `object_id` and `tracking_session_id` empty; `tracking_valid=false`.
+- `enable_tracking:=false` remains rejected until V3 is authorized.
 - Consumers of legacy `/perception/localized_objects` are out of scope; this package does not replace them silently.
 
 ## Runtime gates (vision_perception package)
 
-Until separately authorized, `vision_perception` keeps:
-
-- `enable_objects:=false` (true rejected at config validation)
-- `enable_tracking:=false` / `tracking_enabled:=false` (true rejected)
-
-Message types here are frozen only; enabling those flags does **not** implement
-depth pairing, `/objects` publish, or tracking.
+- `enable_objects` defaults **false**; `true` allowed only for `mode:=v1_ros` (subscribes configurable `depth_topic` + `camera_info_topic`).
+- `enable_tracking:=false` / `tracking_enabled:=false` (true rejected).
+- Default topic names (configurable; ZED names are subscription targets only — this package does **not** start the ZED SDK or edit ZED launch):
+  - depth: `/zed/zed_node/depth/depth_registered`
+  - camera_info: `/zed/zed_node/rgb/color/rect/camera_info`
+  - Fake smoke: `/dg/vision/fake/depth` + `/dg/vision/fake/camera_info` via `use_fake_depth:=true`.
 
 ## V1 evidence shells
 

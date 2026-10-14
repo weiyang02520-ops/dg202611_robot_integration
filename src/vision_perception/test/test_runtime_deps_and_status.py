@@ -110,6 +110,46 @@ def test_worker_error_degrades_status_not_empty_boxes():
     assert empty_detections_are_healthy(0, "onnx boom") is False
 
 
+def test_v2_status_marks_object_output_and_missing_calib():
+    level, message, fields = compose_v1_ros_diagnostic(
+        frames_received=3,
+        frames_processed=2,
+        frames_dropped=0,
+        last_observation_id=2,
+        last_detection_count=1,
+        enable_objects=True,
+        object_output_active=True,
+        camera_info_received=False,
+        last_input_age_sec=0.1,
+        depth_topic="/dg/vision/fake/depth",
+        camera_info_topic="/dg/vision/fake/camera_info",
+    )
+    assert level == LEVEL_WARN
+    assert message == "V2_OBJECTS_NO_CALIBRATION"
+    assert fields["object_output_active"] == "true"
+    assert fields["enable_objects"] == "true"
+    assert fields["arm_ready"] == "NO"
+    assert fields["camera_info_received"] == "false"
+
+    level2, message2, fields2 = compose_v1_ros_diagnostic(
+        frames_received=3,
+        frames_processed=2,
+        frames_dropped=0,
+        last_observation_id=2,
+        last_detection_count=1,
+        enable_objects=True,
+        object_output_active=True,
+        camera_info_received=True,
+        last_input_age_sec=0.1,
+        last_pair_reason="OK",
+        last_position_valid_count=1,
+    )
+    assert level2 == LEVEL_OK
+    assert message2 == "V2_OBJECTS_DEV"
+    assert fields2["last_pair_reason"] == "OK"
+    assert fields2["last_position_valid_count"] == "1"
+
+
 def test_diagnostic_level_byte_accepts_int_and_rejects_bad_length():
     assert as_diagnostic_level_byte(0) == b"\x00"
     assert as_diagnostic_level_byte(1) == b"\x01"

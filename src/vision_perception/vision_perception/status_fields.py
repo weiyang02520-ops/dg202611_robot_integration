@@ -56,6 +56,8 @@ def compose_v1_ros_diagnostic(
     last_worker_error: str = "",
     camera_contract: str = "DEV_WEBCAM_ONLY / NOT_ZED",
     rgb_topic: str = "/dg/vision/webcam/image_raw",
+    depth_topic: str = "",
+    camera_info_topic: str = "",
     source_session_id: str = "",
     backend: str = "onnxruntime_cpu",
     source_kind: str = "LIVE_CAMERA",
@@ -64,8 +66,16 @@ def compose_v1_ros_diagnostic(
     publish_debug_image: bool = False,
     last_inference_ms: float = -1.0,
     calibration_id: str = "",
+    enable_objects: bool = False,
+    object_output_active: bool = False,
+    last_objects_count: int = 0,
+    last_position_valid_count: int = 0,
+    last_pair_reason: str = "",
+    last_pair_skew_sec: Optional[float] = None,
+    depth_frames_received: int = 0,
+    camera_info_received: bool = False,
 ) -> Tuple[bytes, str, Dict[str, str]]:
-    """Return (level_byte, message, key/value fields) for v1_ros status heartbeat."""
+    """Return (level_byte, message, key/value fields) for v1_ros(+optional V2) status."""
     error = (last_worker_error or "").strip()
     stale = is_input_stale(last_input_age_sec, input_stale_sec)
 
@@ -75,12 +85,19 @@ def compose_v1_ros_diagnostic(
     elif stale:
         level = LEVEL_STALE
         message = "STALE"
+    elif enable_objects and not camera_info_received:
+        # V2 enabled but no CameraInfo yet — degrade, do not invent 3D.
+        level = LEVEL_WARN
+        message = "V2_OBJECTS_NO_CALIBRATION"
     else:
         level = LEVEL_OK
-        message = "V1_ROS_DEV_WEBCAM"
+        message = "V2_OBJECTS_DEV" if enable_objects else "V1_ROS_DEV_WEBCAM"
 
     age_text = (
         f"{float(last_input_age_sec):.3f}" if last_input_age_sec is not None else ""
+    )
+    skew_text = (
+        f"{float(last_pair_skew_sec):.6f}" if last_pair_skew_sec is not None else ""
     )
     fields = {
         "mode": "v1_ros",
@@ -93,7 +110,8 @@ def compose_v1_ros_diagnostic(
         "calibration_id": calibration_id,
         "inference_active": "true",
         "tracking_active": "false",
-        "object_output_active": "false",
+        "object_output_active": "true" if object_output_active else "false",
+        "enable_objects": "true" if enable_objects else "false",
         "control_output_active": "false",
         "arm_ready": "NO",
         "publish_debug_image": "true" if publish_debug_image else "false",
@@ -102,8 +120,14 @@ def compose_v1_ros_diagnostic(
         "frames_received": str(int(frames_received)),
         "frames_processed": str(int(frames_processed)),
         "frames_dropped": str(int(frames_dropped)),
+        "depth_frames_received": str(int(depth_frames_received)),
+        "camera_info_received": "true" if camera_info_received else "false",
         "last_observation_id": str(int(last_observation_id)),
         "last_detection_count": str(int(last_detection_count)),
+        "last_objects_count": str(int(last_objects_count)),
+        "last_position_valid_count": str(int(last_position_valid_count)),
+        "last_pair_reason": last_pair_reason,
+        "last_pair_skew_sec": skew_text,
         "last_input_age_sec": age_text,
         "input_stale_sec": f"{float(input_stale_sec):.3f}",
         "last_inference_ms": (
@@ -112,6 +136,8 @@ def compose_v1_ros_diagnostic(
         "empty_detections_healthy": "true",
         "last_worker_error": error,
         "rgb_topic": rgb_topic,
+        "depth_topic": depth_topic,
+        "camera_info_topic": camera_info_topic,
     }
     return as_diagnostic_level_byte(level), message, fields
 

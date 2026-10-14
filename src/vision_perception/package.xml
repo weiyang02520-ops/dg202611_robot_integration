@@ -1,10 +1,10 @@
 <?xml version="1.0"?>
 <package format="3">
   <name>vision_perception</name>
-  <version>0.1.7</version>
+  <version>0.1.8</version>
   <description>
-    Independent manipulation-vision: skeleton, offline V1, optional v1_ros webcam.
-    V2/V3 gates enable_objects and enable_tracking stay false until authorized.
+    Independent manipulation-vision: skeleton, offline V1, optional v1_ros webcam,
+    optional V2 objects when enable_objects is true. enable_tracking stays false.
   </description>
   <maintainer email="206929594+liaojingwu20041031@users.noreply.github.com">liaojingwu20041031</maintainer>
   <license>Apache-2.0</license>

@@ -44,6 +44,7 @@ install(PROGRAMS
   scripts/vision_offline_detect
   scripts/vision_webcam_publisher
   scripts/vision_fake_image_publisher
+  scripts/vision_fake_depth_publisher
   DESTINATION lib/${PROJECT_NAME}
   PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
 )
@@ -61,6 +62,7 @@ install(CODE [[
       vision_offline_detect
       vision_webcam_publisher
       vision_fake_image_publisher
+      vision_fake_depth_publisher
     )
     set(_path "${_vision_libexec}/${_name}")
     if(EXISTS "${_path}")

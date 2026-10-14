@@ -21,6 +21,7 @@ LIBEXEC_WRAPPERS=(
   vision_offline_detect
   vision_webcam_publisher
   vision_fake_image_publisher
+  vision_fake_depth_publisher
 )
 HELPER_SCRIPTS=(
   check_ament_prefix_hook.sh

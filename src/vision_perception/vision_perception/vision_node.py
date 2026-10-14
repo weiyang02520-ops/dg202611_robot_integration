@@ -3,22 +3,26 @@
 skeleton: status only — no camera, no inference, no detections.
 v1_ros: subscribe sensor_msgs/Image, run DetectionEngine, publish
         VisionDetectionArray on /dg/vision/detections_2d + status.
-Optional debug_image (default off, ≤2 Hz). V1 does not publish /objects,
-depth, or tracking. mode:=v1 (legacy) remains rejected.
+Optional enable_objects:=true (default false): subscribe depth + CameraInfo,
+        pair ≤ sync_tolerance_sec, publish VisionObjectArray on /dg/vision/objects.
+Optional debug_image (default off, ≤2 Hz). mode:=v1 (legacy) remains rejected.
 camera_contract for v1_ros: DEV_WEBCAM_ONLY / NOT_ZED. ARM_READY=NO.
+Does not start ZED SDK or publish grasp / cmd_vel.
 """
 
 from __future__ import annotations
 
 import sys
+import threading
 import time
+from dataclasses import dataclass
 from typing import Any, Optional
 
 import rclpy
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import CameraInfo, Image
 
 from vision_perception.config import (
     CAMERA_CONTRACT_NOT_RUN,
@@ -27,10 +31,22 @@ from vision_perception.config import (
     vision_config_from_mapping,
 )
 from vision_perception.debug_overlay import DebugPublishGate, draw_detections_rgb
+from vision_perception.depth_io import (
+    CameraCalibration,
+    DepthFrame,
+    camera_calibration_from_info_msg,
+    decode_depth_msg,
+)
+from vision_perception.frame_pairing import DepthFrameBuffer
 from vision_perception.frame_worker import LatestFrameWorker
-from vision_perception.message_mapping import try_build_vision_detection_array_msg
+from vision_perception.message_mapping import (
+    try_build_vision_detection_array_msg,
+    try_build_vision_object_array_msg,
+)
+from vision_perception.objects_pipeline import build_object_batch
 from vision_perception.pipeline import DetectionEngine
 from vision_perception.ros_image_bridge import (
+    DecodedImage,
     decode_sensor_image_msg,
     encode_rgb8_image_fields,
 )
@@ -40,6 +56,17 @@ from vision_perception.status_fields import (
     compose_v1_ros_diagnostic,
     is_input_stale,
 )
+
+
+@dataclass
+class PendingRgbJob:
+    """RGB frame plus optional pre-inference depth snapshot (V2)."""
+
+    decoded: DecodedImage
+    depth: Optional[DepthFrame]
+    pair_skew_sec: Optional[float]
+    pair_reason: str
+    calibration: Optional[CameraCalibration]
 
 
 def _fill_sensor_image_msg(msg: Image, fields: dict) -> Image:
@@ -56,7 +83,7 @@ def _fill_sensor_image_msg(msg: Image, fields: dict) -> Image:
 
 
 class VisionPerceptionNode(Node):
-    """Skeleton status shell, or v1_ros Image→detections path when explicitly enabled."""
+    """Skeleton status shell, or v1_ros Image→detections (+ optional V2 objects)."""
 
     def __init__(self):
         super().__init__("vision_perception_node")
@@ -104,17 +131,31 @@ class VisionPerceptionNode(Node):
         self._engine: Optional[DetectionEngine] = None
         self._worker: Optional[LatestFrameWorker] = None
         self._detections_pub = None
+        self._objects_pub = None
         self._debug_pub = None
         self._debug_gate: Optional[DebugPublishGate] = None
         self._image_sub = None
+        self._depth_sub = None
+        self._info_sub = None
         self._frames_received = 0
+        self._depth_frames_received = 0
         self._last_observation_id = 0
         self._last_detection_count = 0
+        self._last_objects_count = 0
+        self._last_position_valid_count = 0
+        self._last_pair_reason = ""
+        self._last_pair_skew_sec: Optional[float] = None
         self._last_source_kind = "LIVE_CAMERA"
         self._last_calibration_id = ""
         self._last_inference_ms = -1.0
         self._backend_name = "unconfigured"
         self._publish_debug = False
+        self._enable_objects = False
+        self._object_output_active = False
+        self._min_depth_m = 0.5
+        self._max_depth_m = 1.5
+        self._depth_topic = ""
+        self._camera_info_topic = ""
         self._input_stale_sec = 1.0
         self._last_input_mono: Optional[float] = None
         self._started_mono = time.monotonic()
@@ -123,6 +164,10 @@ class VisionPerceptionNode(Node):
         self._camera_contract = CAMERA_CONTRACT_NOT_RUN
         self._inference_active = False
         self._camera_subscriptions_active = False
+        self._depth_buffer: Optional[DepthFrameBuffer] = None
+        self._calib_lock = threading.Lock()
+        self._calibration: Optional[CameraCalibration] = None
+        self._camera_info_received = False
 
         status_topic = self.get_parameter("status_topic").value
         if not status_topic.startswith("/dg/vision/"):
@@ -198,7 +243,8 @@ class VisionPerceptionNode(Node):
         self._camera_contract = CAMERA_CONTRACT_NOT_RUN
         self.get_logger().warning(
             "SKELETON_ONLY: no camera subscriptions, inference, object output or control; "
-            "use mode:=v1_ros for DEV webcam/Image detection"
+            "use mode:=v1_ros for DEV webcam/Image detection; "
+            "enable_objects:=true only with v1_ros for V2 /objects"
         )
 
     def _init_v1_ros(self) -> None:
@@ -231,7 +277,44 @@ class VisionPerceptionNode(Node):
         self._detections_pub = self.create_publisher(
             VisionDetectionArray, detections_topic, 10
         )
-        # V1 hard boundary: never create an /objects publisher.
+        self._enable_objects = bool(cfg.enable_objects)
+        self._min_depth_m = float(cfg.min_depth_m)
+        self._max_depth_m = float(cfg.max_depth_m)
+        self._depth_topic = str(cfg.depth_topic)
+        self._camera_info_topic = str(cfg.camera_info_topic)
+
+        if self._enable_objects:
+            try:
+                from vision_perception_interfaces.msg import VisionObjectArray
+            except ImportError as exc:
+                raise RuntimeError(
+                    "vision_perception_interfaces is required for enable_objects"
+                ) from exc
+            objects_topic = cfg.objects_topic
+            if not objects_topic.startswith("/dg/vision/"):
+                raise ValueError("objects_topic must remain within /dg/vision/")
+            self._objects_pub = self.create_publisher(
+                VisionObjectArray, objects_topic, 10
+            )
+            self._object_output_active = True
+            self._depth_buffer = DepthFrameBuffer(
+                tolerance_sec=float(cfg.sync_tolerance_sec),
+                max_size=10,
+            )
+            self._depth_sub = self.create_subscription(
+                Image, cfg.depth_topic, self._on_depth, 10
+            )
+            self._info_sub = self.create_subscription(
+                CameraInfo, cfg.camera_info_topic, self._on_camera_info, 10
+            )
+            self.get_logger().warning(
+                f"V2 enable_objects: depth={cfg.depth_topic}, "
+                f"camera_info={cfg.camera_info_topic}, "
+                f"publish {objects_topic}; unpaired/missing calib → "
+                "position_valid=false (no forged 3D); ARM_READY=NO; "
+                "orientation_valid=false; no tracking/grasp"
+            )
+
         self._publish_debug = bool(cfg.publish_debug_image)
         if self._publish_debug:
             topic = cfg.debug_image_topic
@@ -255,15 +338,55 @@ class VisionPerceptionNode(Node):
         self._image_sub = self.create_subscription(
             Image, cfg.rgb_topic, self._on_image, 10
         )
-        self._implementation_status = "V1_ROS_DEV_WEBCAM"
+        self._implementation_status = (
+            "V2_OBJECTS_DEV" if self._enable_objects else "V1_ROS_DEV_WEBCAM"
+        )
         self._camera_contract = str(cfg.camera_contract)
         self._inference_active = True
         self._camera_subscriptions_active = True
+        objects_note = (
+            f"; objects={cfg.objects_topic}" if self._enable_objects else "; no /objects"
+        )
         self.get_logger().warning(
             f"v1_ros DEV_WEBCAM_ONLY / NOT_ZED: subscribing {cfg.rgb_topic}, "
-            f"publishing {detections_topic}; no depth/objects/cmd_vel/ZED SDK; "
+            f"publishing {detections_topic}{objects_note}; "
+            "no ZED SDK start, no cmd_vel; "
             "empty detections=[] is healthy for blank fake frames; ARM_READY=NO"
         )
+
+    def _on_depth(self, msg: Image) -> None:
+        if self._depth_buffer is None:
+            return
+        try:
+            frame = decode_depth_msg(msg)
+        except Exception as exc:  # noqa: BLE001
+            self.get_logger().error(f"depth decode failed: {exc}")
+            return
+        self._depth_frames_received += 1
+        self._depth_buffer.push(frame)
+
+    def _on_camera_info(self, msg: CameraInfo) -> None:
+        try:
+            calib = camera_calibration_from_info_msg(msg)
+        except Exception as exc:  # noqa: BLE001
+            self.get_logger().error(f"CameraInfo rejected: {exc}")
+            return
+        with self._calib_lock:
+            prev = self._calibration
+            if prev is not None and prev.calibration_id != calib.calibration_id:
+                # Calibration change: clear depth pairing; new session not forced here
+                # (RGB session stays; 3D stays invalid until consistent again).
+                if self._depth_buffer is not None:
+                    self._depth_buffer.clear()
+                self.get_logger().warning(
+                    "CameraInfo calibration_id changed; depth buffer cleared"
+                )
+            self._calibration = calib
+            self._camera_info_received = True
+
+    def _snapshot_calibration(self) -> Optional[CameraCalibration]:
+        with self._calib_lock:
+            return self._calibration
 
     def _on_image(self, msg: Image) -> None:
         self._frames_received += 1
@@ -277,11 +400,52 @@ class VisionPerceptionNode(Node):
         except Exception as exc:  # noqa: BLE001
             self.get_logger().error(f"image decode failed: {exc}")
             return
-        self._worker.submit(decoded)
 
-    def _process_pending_frame(self, decoded: Any) -> None:
+        depth: Optional[DepthFrame] = None
+        pair_skew: Optional[float] = None
+        pair_reason = "DEPTH_UNPAIRED"
+        calib: Optional[CameraCalibration] = None
+        if self._enable_objects and self._depth_buffer is not None:
+            # Fix depth+calib snapshot before inference (plan §7.1).
+            pair = self._depth_buffer.pair_for_rgb(
+                decoded.header.stamp_sec, decoded.header.stamp_nanosec
+            )
+            depth = pair.depth
+            pair_skew = pair.skew_sec
+            pair_reason = pair.reason
+            calib = self._snapshot_calibration()
+            if calib is None:
+                pair_reason = "DEPTH_UNPAIRED"
+                depth = None
+
+        self._worker.submit(
+            PendingRgbJob(
+                decoded=decoded,
+                depth=depth,
+                pair_skew_sec=pair_skew,
+                pair_reason=pair_reason,
+                calibration=calib,
+            )
+        )
+
+    def _process_pending_frame(self, job: Any) -> None:
         if self._engine is None or self._detections_pub is None:
             return
+        if isinstance(job, PendingRgbJob):
+            decoded = job.decoded
+            depth = job.depth
+            pair_skew = job.pair_skew_sec
+            pair_reason = job.pair_reason
+            calib = job.calibration
+        else:
+            # Backward-compatible if a bare DecodedImage is submitted.
+            decoded = job
+            depth = None
+            pair_skew = None
+            pair_reason = "DEPTH_UNPAIRED"
+            calib = None
+
+        calib_id = calib.calibration_id if calib is not None else ""
         t0 = time.monotonic()
         batch = self._engine.process_rgb_array(
             decoded.rgb,
@@ -289,6 +453,7 @@ class VisionPerceptionNode(Node):
             stamp_sec=decoded.header.stamp_sec,
             stamp_nanosec=decoded.header.stamp_nanosec,
             source_kind="LIVE_CAMERA",
+            calibration_id=calib_id,
         )
         self._last_inference_ms = (time.monotonic() - t0) * 1000.0
         self._last_observation_id = int(batch.key.observation_id)
@@ -298,6 +463,27 @@ class VisionPerceptionNode(Node):
         message = try_build_vision_detection_array_msg(batch)
         self._detections_pub.publish(message)
         self._maybe_publish_debug(decoded.rgb, batch)
+
+        if self._enable_objects and self._objects_pub is not None:
+            objects = build_object_batch(
+                batch,
+                depth=depth,
+                calibration=calib,
+                pair_skew_sec=pair_skew,
+                pair_reason=pair_reason,
+                min_depth_m=self._min_depth_m,
+                max_depth_m=self._max_depth_m,
+                tracking_session_id="",
+            )
+            self._last_objects_count = len(objects.objects)
+            self._last_position_valid_count = sum(
+                1 for o in objects.objects if o.position_valid
+            )
+            self._last_pair_reason = objects.pair_reason
+            self._last_pair_skew_sec = objects.pair_skew_sec
+            if objects.calibration_id:
+                self._last_calibration_id = objects.calibration_id
+            self._objects_pub.publish(try_build_vision_object_array_msg(objects))
 
     def _maybe_publish_debug(self, rgb, batch) -> None:
         if not self._publish_debug or self._debug_pub is None or self._debug_gate is None:
@@ -338,6 +524,7 @@ class VisionPerceptionNode(Node):
                 "inference_active": "false",
                 "tracking_active": "false",
                 "object_output_active": "false",
+                "enable_objects": "false",
                 "control_output_active": "false",
                 "arm_ready": "NO",
                 "publish_debug_image": "false",
@@ -369,6 +556,8 @@ class VisionPerceptionNode(Node):
                 last_worker_error=last_error or "",
                 camera_contract=self._camera_contract,
                 rgb_topic=str(self.get_parameter("rgb_topic").value),
+                depth_topic=self._depth_topic,
+                camera_info_topic=self._camera_info_topic,
                 source_session_id=session_id,
                 backend=self._backend_name,
                 source_kind=self._last_source_kind,
@@ -377,6 +566,14 @@ class VisionPerceptionNode(Node):
                 publish_debug_image=self._publish_debug,
                 last_inference_ms=self._last_inference_ms,
                 calibration_id=self._last_calibration_id,
+                enable_objects=self._enable_objects,
+                object_output_active=self._object_output_active,
+                last_objects_count=self._last_objects_count,
+                last_position_valid_count=self._last_position_valid_count,
+                last_pair_reason=self._last_pair_reason,
+                last_pair_skew_sec=self._last_pair_skew_sec,
+                depth_frames_received=self._depth_frames_received,
+                camera_info_received=self._camera_info_received,
             )
             status.level = as_diagnostic_level_byte(level)
             status.message = msg
@@ -390,6 +587,8 @@ class VisionPerceptionNode(Node):
             self._worker.clear_pending()
             self._worker.stop()
             self._worker = None
+        if self._depth_buffer is not None:
+            self._depth_buffer.clear()
         super().destroy_node()
 
 

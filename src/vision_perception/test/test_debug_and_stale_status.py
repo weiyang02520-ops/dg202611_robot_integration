@@ -157,11 +157,13 @@ def test_synthetic_golden_boxes_match_expected_geometry():
     assert 20.0 <= det["bbox"]["center_y"] <= 60.0
 
 
-def test_vision_node_source_never_publishes_objects_topic():
+def test_vision_node_objects_publisher_gated_by_enable_objects():
     text = (ROOT / "vision_perception" / "vision_node.py").read_text(encoding="utf-8")
     assert "create_publisher" in text
-    # Must not create a publisher for objects in V1.
-    assert "objects_topic" in text  # declared / validated
-    assert 'create_publisher(\n            VisionObject' not in text
-    assert "VisionObjectArray" not in text or "v2_objects_interface" in text
-    assert "never create an /objects publisher" in text
+    assert "objects_topic" in text
+    assert "enable_objects" in text
+    # Publisher created only inside the enable_objects branch.
+    assert "if self._enable_objects:" in text
+    assert "VisionObjectArray" in text
+    assert "ARM_READY=NO" in text
+    assert "orientation_valid=false" in text or "orientation_valid" in text

@@ -67,6 +67,7 @@ def test_ensure_scripts_executable_helper_exists():
     text = path.read_text(encoding="utf-8")
     assert "chmod a+x" in text
     assert "vision_fake_image_publisher" in text
+    assert "vision_fake_depth_publisher" in text
 
 
 def test_bootstrap_isolated_ws_script_exists():

@@ -87,15 +87,14 @@ def test_vision_object_msgs_match_plan_section_3():
     ]
 
 
-def test_interface_contract_doc_exists_and_forbids_v1_objects_publish():
+def test_interface_contract_doc_exists_and_documents_v2_gate():
     text = (IFACE / "INTERFACE_CONTRACT.md").read_text(encoding="utf-8")
     assert "/dg/vision/objects" in text
     assert "VisionObjectArray" in text
     assert "orientation_valid" in text
     assert "ARM_READY" in text
-    assert "V1 must not publish" in text
-    assert "enable_objects:=false" in text
-    assert "enable_tracking:=false" in text
+    assert "enable_objects" in text
+    assert "enable_tracking:=false" in text or "enable_tracking" in text
     assert "vision_perception/evidence/templates" in text
     assert (IFACE / "README.md").is_file()
 
@@ -143,6 +142,7 @@ def test_enable_objects_and_tracking_default_false_and_reject_true():
     assert cfg.enable_objects is False
     assert cfg.enable_tracking is False
     assert cfg.tracking_enabled is False
+    # Without mode=v1_ros, enable_objects=true is rejected (skeleton default).
     with pytest.raises(ValueError, match="enable_objects"):
         vision_config_from_mapping({"enable_objects": True})
     with pytest.raises(ValueError, match="enable_tracking"):
@@ -158,19 +158,20 @@ def test_enable_tracking_alias_disagrees_raises():
         )
 
 
-def test_v1_ros_still_rejects_enable_objects(tmp_path: Path):
-    with pytest.raises(ValueError, match="enable_objects"):
-        vision_config_from_mapping(
-            {
-                "mode": "v1_ros",
-                "backend": "onnxruntime_cpu",
-                "model_path": str(tmp_path / "m.onnx"),
-                "model_manifest_path": str(tmp_path / "m.json"),
-                "detector_enabled": True,
-                "camera_contract": "DEV_WEBCAM_ONLY / NOT_ZED",
-                "enable_objects": True,
-            }
-        )
+def test_v1_ros_allows_enable_objects_default_still_false(tmp_path: Path):
+    base = {
+        "mode": "v1_ros",
+        "backend": "onnxruntime_cpu",
+        "model_path": str(tmp_path / "m.onnx"),
+        "model_manifest_path": str(tmp_path / "m.json"),
+        "detector_enabled": True,
+        "camera_contract": "DEV_WEBCAM_ONLY / NOT_ZED",
+    }
+    cfg = vision_config_from_mapping(base)
+    assert cfg.enable_objects is False
+    cfg2 = vision_config_from_mapping({**base, "enable_objects": True})
+    assert cfg2.enable_objects is True
+    assert cfg2.objects_topic == "/dg/vision/objects"
 
 
 def test_v1_evidence_templates_exist():

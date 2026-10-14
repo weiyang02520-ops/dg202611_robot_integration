@@ -7,7 +7,8 @@ Ubuntu103; this tree does **not** claim ZED or production camera acceptance.
 - Explicit `mode:=v1_ros` with local webcam or fake Image:
   `camera_contract=DEV_WEBCAM_ONLY / NOT_ZED`
 - `ARM_READY=NO`
-- `enable_objects` / `enable_tracking` remain **false** (V2/V3 not authorized)
+- Defaults: `enable_objects` / `enable_tracking` **false**. V2 `/objects` only with
+  explicit `enable_objects:=true` (fake-depth smoke offline; real ZED = NOT_RUN)
 
 ## Canonical V1 templates (package-local)
 

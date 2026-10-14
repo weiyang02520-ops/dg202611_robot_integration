@@ -42,3 +42,6 @@ def test_launch_declares_fake_image_path():
     assert 'DeclareLaunchArgument(\n            "fake_image_path"' in text or (
         '"fake_image_path"' in text and "LaunchConfiguration(\"fake_image_path\")" in text
     )
+    assert "use_fake_depth" in text
+    assert "enable_objects" in text
+    assert "vision_fake_depth_publisher" in text

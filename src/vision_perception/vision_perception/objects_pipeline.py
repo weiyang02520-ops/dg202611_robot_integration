@@ -1,0 +1,194 @@
+"""Build VisionObject batches from 2D detections + paired depth (V2)."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import List, Optional, Sequence, Tuple
+
+import numpy as np
+
+from vision_perception.depth_io import CameraCalibration, DepthFrame
+from vision_perception.surface_sample import sample_visible_surface
+from vision_perception.types import (
+    POSITION_REFERENCE,
+    Detection,
+    DetectionBatch,
+)
+
+
+@dataclass(frozen=True)
+class Object3D:
+    detection_index: int
+    class_name: str
+    confidence: float
+    bbox_center_x: float
+    bbox_center_y: float
+    bbox_size_x: float
+    bbox_size_y: float
+    bbox_theta: float
+    position_xyz: Tuple[float, float, float]
+    position_valid: bool
+    position_reference: str
+    invalid_reason: str
+    reference_u: float
+    reference_v: float
+    valid_depth_fraction: float
+    orientation_xyzw: Tuple[float, float, float, float]
+    orientation_valid: bool
+    tracking_valid: bool
+    object_id: str
+    mask_source: str
+
+
+@dataclass(frozen=True)
+class ObjectBatch:
+    detection_batch: DetectionBatch
+    objects: Tuple[Object3D, ...]
+    tracking_session_id: str
+    depth_paired: bool
+    pair_skew_sec: Optional[float]
+    pair_reason: str
+    calibration_id: str
+    mask_source: str = "bbox_fill"
+
+
+def _nan_quat() -> Tuple[float, float, float, float]:
+    return (float("nan"), float("nan"), float("nan"), float("nan"))
+
+
+def _nan_xyz() -> Tuple[float, float, float]:
+    return (float("nan"), float("nan"), float("nan"))
+
+
+def object_from_unpaired_detection(det: Detection) -> Object3D:
+    return Object3D(
+        detection_index=int(det.detection_index),
+        class_name=det.class_name,
+        confidence=float(det.confidence),
+        bbox_center_x=float(det.bbox.center_x),
+        bbox_center_y=float(det.bbox.center_y),
+        bbox_size_x=float(det.bbox.size_x),
+        bbox_size_y=float(det.bbox.size_y),
+        bbox_theta=float(det.bbox.theta),
+        position_xyz=_nan_xyz(),
+        position_valid=False,
+        position_reference=POSITION_REFERENCE,
+        invalid_reason="DEPTH_UNPAIRED",
+        reference_u=float("nan"),
+        reference_v=float("nan"),
+        valid_depth_fraction=0.0,
+        orientation_xyzw=_nan_quat(),
+        orientation_valid=False,
+        tracking_valid=False,
+        object_id="",
+        mask_source="none",
+    )
+
+
+def build_object_batch(
+    detection_batch: DetectionBatch,
+    *,
+    depth: Optional[DepthFrame],
+    calibration: Optional[CameraCalibration],
+    pair_skew_sec: Optional[float] = None,
+    pair_reason: str = "DEPTH_UNPAIRED",
+    min_depth_m: float = 0.5,
+    max_depth_m: float = 1.5,
+    tracking_session_id: str = "",
+) -> ObjectBatch:
+    """One Object3D per retained 2D detection (including depth failures)."""
+    detections: Sequence[Detection] = detection_batch.detections
+    if depth is None or calibration is None or pair_reason != "OK":
+        objects = tuple(object_from_unpaired_detection(d) for d in detections)
+        return ObjectBatch(
+            detection_batch=detection_batch,
+            objects=objects,
+            tracking_session_id=tracking_session_id,
+            depth_paired=False,
+            pair_skew_sec=pair_skew_sec,
+            pair_reason="DEPTH_UNPAIRED",
+            calibration_id=calibration.calibration_id if calibration else "",
+            mask_source="bbox_fill",
+        )
+
+    # Dimension / frame sanity — fail closed to unpaired-like invalids.
+    if depth.depth_m.shape[:2] != (calibration.height, calibration.width):
+        objects = tuple(
+            Object3D(
+                detection_index=int(d.detection_index),
+                class_name=d.class_name,
+                confidence=float(d.confidence),
+                bbox_center_x=float(d.bbox.center_x),
+                bbox_center_y=float(d.bbox.center_y),
+                bbox_size_x=float(d.bbox.size_x),
+                bbox_size_y=float(d.bbox.size_y),
+                bbox_theta=float(d.bbox.theta),
+                position_xyz=_nan_xyz(),
+                position_valid=False,
+                position_reference=POSITION_REFERENCE,
+                invalid_reason="INPUT_INVALID",
+                reference_u=float("nan"),
+                reference_v=float("nan"),
+                valid_depth_fraction=0.0,
+                orientation_xyzw=_nan_quat(),
+                orientation_valid=False,
+                tracking_valid=False,
+                object_id="",
+                mask_source="bbox_fill",
+            )
+            for d in detections
+        )
+        return ObjectBatch(
+            detection_batch=detection_batch,
+            objects=objects,
+            tracking_session_id=tracking_session_id,
+            depth_paired=True,
+            pair_skew_sec=pair_skew_sec,
+            pair_reason=pair_reason,
+            calibration_id=calibration.calibration_id,
+            mask_source="bbox_fill",
+        )
+
+    built: List[Object3D] = []
+    for det in detections:
+        sample = sample_visible_surface(
+            depth.depth_m,
+            det.bbox,
+            calibration,
+            min_depth_m=min_depth_m,
+            max_depth_m=max_depth_m,
+        )
+        built.append(
+            Object3D(
+                detection_index=int(det.detection_index),
+                class_name=det.class_name,
+                confidence=float(det.confidence),
+                bbox_center_x=float(det.bbox.center_x),
+                bbox_center_y=float(det.bbox.center_y),
+                bbox_size_x=float(det.bbox.size_x),
+                bbox_size_y=float(det.bbox.size_y),
+                bbox_theta=float(det.bbox.theta),
+                position_xyz=sample.xyz,
+                position_valid=bool(sample.position_valid),
+                position_reference=sample.position_reference,
+                invalid_reason=sample.invalid_reason,
+                reference_u=float(sample.reference_u),
+                reference_v=float(sample.reference_v),
+                valid_depth_fraction=float(sample.valid_depth_fraction),
+                orientation_xyzw=_nan_quat(),
+                orientation_valid=False,
+                tracking_valid=False,
+                object_id="",
+                mask_source=sample.mask_source,
+            )
+        )
+    return ObjectBatch(
+        detection_batch=detection_batch,
+        objects=tuple(built),
+        tracking_session_id=tracking_session_id,
+        depth_paired=True,
+        pair_skew_sec=pair_skew_sec,
+        pair_reason=pair_reason,
+        calibration_id=calibration.calibration_id,
+        mask_source="bbox_fill",
+    )

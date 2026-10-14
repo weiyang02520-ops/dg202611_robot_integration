@@ -11,10 +11,12 @@ Independent manipulation-vision ROS2 package (arm-independent).
 | Optional `publish_debug_image:=true` | Annotated `sensor_msgs/Image` on `/dg/vision/debug_image` (≤2 Hz). **Default off.** |
 | Optional `vision_webcam_publisher` | V4L2/OpenCV → Image. Started only with `use_webcam:=true`. |
 | Optional `vision_fake_image_publisher` | Synthetic/file RGB for no-camera smoke tests (`use_fake_image:=true`). |
+| Optional `vision_fake_depth_publisher` | Constant 32FC1 depth + synthetic CameraInfo (`use_fake_depth:=true`). Mirrors RGB stamps. |
+| Optional `enable_objects:=true` (v1_ros only) | V2: pair depth+CameraInfo, publish `VisionObjectArray` on `/dg/vision/objects`. **Default false.** |
 | Offline CLI `vision_offline_detect` | File → JSON/CSV. No ROS camera claim. |
 | Legacy `mode:=v1` | **Rejected** (non-zero exit). |
-| ZED / production camera contract | **Not authorized here.** `camera_contract=DEV_WEBCAM_ONLY / NOT_ZED` for v1_ros. |
-| V2 depth / V3 tracking / arm | **Not authorized.** Config gates `enable_objects:=false`, `enable_tracking:=false` (true is rejected). Message types for `/dg/vision/objects` are frozen in `vision_perception_interfaces` only. `ARM_READY=NO`. `orientation_valid` stays false through V3. |
+| ZED / production camera contract | **Not authorized here.** `camera_contract=DEV_WEBCAM_ONLY / NOT_ZED` for v1_ros. Node may *subscribe* to ZED topic names but never starts the SDK. |
+| V3 tracking / arm | **Not authorized.** `enable_tracking:=false` (true rejected). `ARM_READY=NO`. `orientation_valid` stays false through V3. |
 
 ### 未做项（NOT_RUN — 勿记 PASS）
 
@@ -22,8 +24,8 @@ Independent manipulation-vision ROS2 package (arm-independent).
 |---|---|
 | 实时相机 / 瓶杯图冒烟验收 | Needs Ubuntu103 + local ONNX + real bottle/cup photo or `/dev/video*` |
 | 导航 / 底盘 / `cmd_vel` / MODEL bringup | Out of scope; must not change |
-| ZED RGB-D 契约与配对 | V2; not authorized in this PR |
-| V2 `/objects` 深度选点、配对、发布管线 | Needs separate auth; `enable_objects` must stay false |
+| 实机 ZED 深度配准 / 透明物体三维 | Needs real ZED stream + fixture ground truth; fake depth only checks plumbing |
+| V2 三维精度验收（median≤30 mm 等） | Needs independent surface-point truth (plan §10.2); synthetic plane ≠ PASS |
 | V3 跟踪 | Needs separate auth; `enable_tracking` must stay false |
 | 真 ONNX 黄金样例比对 | Weights stay out of git; synthetic postprocess goldens cover format only |
 
@@ -291,6 +293,52 @@ ros2 launch vision_perception vision.launch.py \
 # → /dg/vision/debug_image at ≤2 Hz when frames are processed
 ```
 
+## V2 offline smoke (fake RGB + fake depth → `/dg/vision/objects`)
+
+Defaults stay safe: `enable_objects:=false` (no `/objects`). Explicit opt-in only.
+
+```bash
+SHARE=$(ros2 pkg prefix vision_perception)/share/vision_perception
+ros2 launch vision_perception vision.launch.py \
+  mode:=v1_ros \
+  use_fake_image:=true \
+  use_fake_depth:=true \
+  enable_objects:=true \
+  fake_image_path:=$SHARE/examples/smoke_rgb_hint.npy \
+  fake_depth_m:=1.0 \
+  model_path:=$HOME/vision_models/yolo11n-seg.onnx \
+  model_manifest_path:=$HOME/vision_models/model_manifest.json \
+  camera_contract:="DEV_WEBCAM_ONLY / NOT_ZED"
+```
+
+`use_fake_depth:=true` starts `vision_fake_depth_publisher`, which mirrors RGB
+stamps onto `/dg/vision/fake/depth` (32FC1 metres) and
+`/dg/vision/fake/camera_info`, and remaps the node’s `depth_topic` /
+`camera_info_topic` away from the ZED defaults when those were left unchanged.
+
+Watch:
+
+```bash
+ros2 topic echo /dg/vision/status --once
+ros2 topic echo /dg/vision/detections_2d --once
+ros2 topic echo /dg/vision/objects --once
+```
+
+Expect `object_output_active=true`, `arm_ready=NO`, every object
+`orientation_valid=false` / `tracking_valid=false`. With constant fake depth and
+a large enough bbox after erode, `position_valid` may be true (synthetic only —
+not a ZED accuracy PASS). Missing depth/info → `DEPTH_UNPAIRED` or status
+`V2_OBJECTS_NO_CALIBRATION`, never invented XYZ.
+
+Configured input names (YAML / launch; subscribe only, no ZED start):
+
+| Param | Default |
+|---|---|
+| `depth_topic` | `/zed/zed_node/depth/depth_registered` (fake remap → `/dg/vision/fake/depth`) |
+| `camera_info_topic` | `/zed/zed_node/rgb/color/rect/camera_info` (fake → `/dg/vision/fake/camera_info`) |
+| `sync_tolerance_sec` | `0.010` |
+| `min_depth_m` / `max_depth_m` | `0.5` / `1.5` |
+
 ## Unit tests (no ROS / no camera)
 
 ```bash
@@ -310,7 +358,7 @@ ros2 run vision_perception vision_offline_detect -- \
 
 ## Boundaries
 
-No MODEL-1/2/3, Nav2/AMCL/SLAM, EKF/TF, cmd_vel, chassis, production bringup, `ylhb_*`, or ZED SDK changes. This package does not publish `/dg/vision/objects` in v1_ros.
+No MODEL-1/2/3, Nav2/AMCL/SLAM, EKF/TF, cmd_vel, chassis, production bringup, `ylhb_*`, or ZED SDK/launch changes. `/dg/vision/objects` publishes only when `enable_objects:=true` (default false).
 
 ## Ubuntu103 sync (same PR branch / full git checkout)
 
@@ -352,7 +400,7 @@ bash src/vision_perception/scripts/bootstrap_isolated_ws.sh --build
 The bootstrap script: restores `+x`, checks package-local LF / evidence templates
 (no monorepo `evidence/` needed), optionally builds (CMake `install(CODE)` chmod
 for libexec), runs pytest, and prints fake-image smoke commands (NOT_RUN without
-ONNX). `enable_objects` / `enable_tracking` remain false.
+ONNX). Defaults keep `enable_objects` / `enable_tracking` false; see V2 fake-depth smoke above.
 
 **You should not need a manual `chmod +x scripts/vision_*` after a normal colcon
 install** — CMake post-install `chmod` (bracket-arg `install(CODE)`) covers it.
