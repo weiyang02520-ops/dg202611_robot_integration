@@ -28,7 +28,10 @@ from vision_perception.message_mapping import try_build_vision_detection_array_m
 from vision_perception.pipeline import DetectionEngine
 from vision_perception.ros_image_bridge import decode_sensor_image_msg
 from vision_perception.runtime_deps import check_numpy_opencv_compat, check_v1_runtime_imports
-from vision_perception.status_fields import compose_v1_ros_diagnostic
+from vision_perception.status_fields import (
+    as_diagnostic_level_byte,
+    compose_v1_ros_diagnostic,
+)
 
 
 class VisionPerceptionNode(Node):
@@ -232,7 +235,8 @@ class VisionPerceptionNode(Node):
         status = DiagnosticStatus()
         status.name = "dg/vision/node"
         if self._mode == "skeleton":
-            status.level = DiagnosticStatus.WARN
+            # Humble: DiagnosticStatus.level is byte → length-1 bytes, not int.
+            status.level = as_diagnostic_level_byte(DiagnosticStatus.WARN)
             status.message = "SKELETON_ONLY"
             fields = {
                 "mode": self._mode,
@@ -261,7 +265,7 @@ class VisionPerceptionNode(Node):
                 camera_contract=self._camera_contract,
                 rgb_topic=str(self.get_parameter("rgb_topic").value),
             )
-            status.level = level
+            status.level = as_diagnostic_level_byte(level)
             status.message = msg
         status.values = [KeyValue(key=key, value=value) for key, value in fields.items()]
         message.status = [status]

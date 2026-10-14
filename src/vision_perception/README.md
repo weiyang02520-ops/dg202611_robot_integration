@@ -21,8 +21,15 @@ Independent manipulation-vision ROS2 package (arm-independent).
 
 ```bash
 source /opt/ros/humble/setup.bash
+# Prefer clean install prefixes after packaging fixes:
+rm -rf build/vision_perception install/vision_perception log/latest*
 colcon build --symlink-install --packages-select vision_perception_interfaces vision_perception
 source install/setup.bash
+
+# Must work without manually exporting AMENT_PREFIX_PATH:
+ros2 pkg list | grep vision_perception
+ros2 pkg prefix vision_perception
+ros2 launch vision_perception vision.launch.py --show-args
 ```
 
 ## Runtime Python pins (NumPy &lt; 2 — required)

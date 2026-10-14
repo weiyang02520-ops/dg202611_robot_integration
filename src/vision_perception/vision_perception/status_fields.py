@@ -2,16 +2,38 @@
 
 Empty detections after a successful process are healthy for fake-image smoke:
 status stays OK / V1_ROS_DEV_WEBCAM. Worker errors degrade; empty boxes do not.
+
+Humble diagnostic_msgs/DiagnosticStatus.level is a ``byte`` field: assignment
+must be length-1 bytes (``b'\\x00'``), not a Python ``int``.
 """
 
 from __future__ import annotations
 
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, Union
 
-# diagnostic_msgs/DiagnosticStatus level values
-LEVEL_OK = 0
-LEVEL_WARN = 1
-LEVEL_ERROR = 2
+# diagnostic_msgs/DiagnosticStatus level values as Humble expects (len==1 bytes)
+LEVEL_OK = b"\x00"
+LEVEL_WARN = b"\x01"
+LEVEL_ERROR = b"\x02"
+LEVEL_STALE = b"\x03"
+
+
+def as_diagnostic_level_byte(level: Union[int, bytes, bytearray]) -> bytes:
+    """Coerce a level to a length-1 bytes object for DiagnosticStatus.level."""
+    if isinstance(level, (bytes, bytearray)):
+        value = bytes(level)
+        if len(value) != 1:
+            raise ValueError(
+                f"DiagnosticStatus.level must be length-1 bytes, got {value!r}"
+            )
+        return value
+    if isinstance(level, int):
+        if level < 0 or level > 255:
+            raise ValueError(f"DiagnosticStatus.level int out of range: {level}")
+        return bytes((level,))
+    raise TypeError(
+        f"DiagnosticStatus.level must be int or length-1 bytes, got {type(level)!r}"
+    )
 
 
 def compose_v1_ros_diagnostic(
@@ -24,8 +46,8 @@ def compose_v1_ros_diagnostic(
     last_worker_error: str = "",
     camera_contract: str = "DEV_WEBCAM_ONLY / NOT_ZED",
     rgb_topic: str = "/dg/vision/webcam/image_raw",
-) -> Tuple[int, str, Dict[str, str]]:
-    """Return (level, message, key/value fields) for v1_ros status heartbeat."""
+) -> Tuple[bytes, str, Dict[str, str]]:
+    """Return (level_byte, message, key/value fields) for v1_ros status heartbeat."""
     error = (last_worker_error or "").strip()
     if error:
         level = LEVEL_WARN
@@ -55,7 +77,7 @@ def compose_v1_ros_diagnostic(
         "last_worker_error": error,
         "rgb_topic": rgb_topic,
     }
-    return level, message, fields
+    return as_diagnostic_level_byte(level), message, fields
 
 
 def empty_detections_are_healthy(

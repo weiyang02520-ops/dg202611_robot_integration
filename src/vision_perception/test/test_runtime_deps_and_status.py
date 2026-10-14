@@ -18,6 +18,7 @@ from vision_perception.runtime_deps import (
 from vision_perception.status_fields import (
     LEVEL_OK,
     LEVEL_WARN,
+    as_diagnostic_level_byte,
     compose_v1_ros_diagnostic,
     empty_detections_are_healthy,
 )
@@ -79,7 +80,8 @@ def test_empty_detections_keep_ok_status():
         last_detection_count=0,
         last_worker_error="",
     )
-    assert level == LEVEL_OK
+    assert level == LEVEL_OK == b"\x00"
+    assert isinstance(level, bytes) and len(level) == 1
     assert message == "V1_ROS_DEV_WEBCAM"
     assert fields["last_detection_count"] == "0"
     assert fields["empty_detections_healthy"] == "true"
@@ -95,7 +97,18 @@ def test_worker_error_degrades_status_not_empty_boxes():
         last_detection_count=0,
         last_worker_error="onnx boom",
     )
-    assert level == LEVEL_WARN
+    assert level == LEVEL_WARN == b"\x01"
+    assert isinstance(level, bytes) and len(level) == 1
     assert message == "V1_ROS_DEGRADED"
     assert fields["last_worker_error"] == "onnx boom"
     assert empty_detections_are_healthy(0, "onnx boom") is False
+
+
+def test_diagnostic_level_byte_accepts_int_and_rejects_bad_length():
+    assert as_diagnostic_level_byte(0) == b"\x00"
+    assert as_diagnostic_level_byte(1) == b"\x01"
+    assert as_diagnostic_level_byte(b"\x02") == b"\x02"
+    with pytest.raises(ValueError, match="length-1"):
+        as_diagnostic_level_byte(b"\x00\x01")
+    with pytest.raises(TypeError):
+        as_diagnostic_level_byte("0")  # type: ignore[arg-type]

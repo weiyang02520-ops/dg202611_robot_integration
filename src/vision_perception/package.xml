@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <package format="3">
   <name>vision_perception</name>
-  <version>0.1.2</version>
+  <version>0.1.3</version>
   <description>Independent manipulation-vision: skeleton, offline V1, optional v1_ros webcam path.</description>
   <maintainer email="206929594+liaojingwu20041031@users.noreply.github.com">liaojingwu20041031</maintainer>
   <license>Apache-2.0</license>
