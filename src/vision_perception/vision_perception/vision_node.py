@@ -74,6 +74,8 @@ class VisionPerceptionNode(Node):
             "model_path": "",
             "model_manifest_path": "",
             "detector_enabled": False,
+            "enable_objects": False,
+            "enable_tracking": False,
             "tracking_enabled": False,
             "publish_debug_image": False,
             "debug_image_max_hz": 2.0,
@@ -144,6 +146,8 @@ class VisionPerceptionNode(Node):
             "model_path",
             "model_manifest_path",
             "detector_enabled",
+            "enable_objects",
+            "enable_tracking",
             "tracking_enabled",
             "publish_debug_image",
             "debug_image_topic",
@@ -177,11 +181,18 @@ class VisionPerceptionNode(Node):
     def _init_skeleton(self) -> None:
         enabled = any(
             as_bool(self.get_parameter(name).value)
-            for name in ("detector_enabled", "tracking_enabled", "publish_debug_image")
+            for name in (
+                "detector_enabled",
+                "enable_objects",
+                "enable_tracking",
+                "tracking_enabled",
+                "publish_debug_image",
+            )
         )
         if enabled or self.get_parameter("backend").value != "unconfigured":
             raise ValueError(
-                "Inference, tracking and debug rendering are not active in skeleton mode"
+                "Inference, objects, tracking and debug rendering are not active "
+                "in skeleton mode"
             )
         self._implementation_status = "SKELETON_ONLY"
         self._camera_contract = CAMERA_CONTRACT_NOT_RUN

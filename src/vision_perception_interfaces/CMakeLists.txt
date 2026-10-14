@@ -15,5 +15,11 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   DEPENDENCIES std_msgs geometry_msgs vision_msgs
 )
 
+install(FILES
+  INTERFACE_CONTRACT.md
+  package.xml
+  DESTINATION share/${PROJECT_NAME}
+)
+
 ament_export_dependencies(rosidl_default_runtime)
 ament_package()

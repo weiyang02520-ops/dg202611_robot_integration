@@ -1,3 +1,5 @@
+# V1 batch on /dg/vision/detections_2d (plan §3).
+
 # Source RGB acquisition timestamp and optical frame; must match per-item headers if present.
 std_msgs/Header header
 # UUID created when the node opens an input session; regenerated on restart/reset/clock rollback/calibration change.

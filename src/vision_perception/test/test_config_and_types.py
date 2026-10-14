@@ -28,6 +28,9 @@ def test_skeleton_defaults_validate():
     assert cfg.backend == "unconfigured"
     assert cfg.max_detections == 20
     assert cfg.publish_debug_image is False
+    assert cfg.enable_objects is False
+    assert cfg.enable_tracking is False
+    assert cfg.tracking_enabled is False
     assert cfg.debug_image_topic == "/dg/vision/debug_image"
     assert cfg.debug_image_max_hz == 2.0
     assert cfg.input_stale_sec == 1.0

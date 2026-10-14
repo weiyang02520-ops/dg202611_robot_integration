@@ -86,9 +86,78 @@ def placeholder_object_dict_from_detection(
         "reference_v": float("nan"),
         "valid_depth_fraction": 0.0,
         "orientation": nan_quaternion_dict(),
+        # Plan §3: orientation_valid is false for V1–V3.
         "orientation_valid": False,
         "tracking_valid": False,
     }
+
+
+def placeholder_object_array_dict_from_batch(
+    batch: DetectionBatch,
+    *,
+    tracking_session_id: str = "",
+    invalid_reason: str = "DEPTH_UNPAIRED",
+) -> Dict[str, Any]:
+    """VisionObjectArray-shaped dict for contract tests. Never published by V1."""
+    key = batch.key
+    objects = [
+        placeholder_object_dict_from_detection(
+            det,
+            frame_id=key.frame_id,
+            stamp_sec=key.source_stamp_sec,
+            stamp_nanosec=key.source_stamp_nanosec,
+            invalid_reason=invalid_reason,
+        )
+        for det in batch.detections
+    ]
+    return {
+        "header": {
+            "frame_id": key.frame_id,
+            "stamp": {
+                "sec": int(key.source_stamp_sec),
+                "nanosec": int(key.source_stamp_nanosec),
+            },
+        },
+        "source_session_id": key.source_session_id,
+        "observation_id": int(key.observation_id),
+        "calibration_id": key.calibration_id,
+        "source_kind": key.source_kind,
+        "tracking_session_id": tracking_session_id,
+        "objects": objects,
+        # Not a .msg field — mirrors status contract for offline JSON only.
+        "arm_ready": "NO",
+    }
+
+
+# Field names required on VisionObject / VisionObjectArray dict shapes (plan §3).
+VISION_OBJECT_DICT_FIELDS = (
+    "header",
+    "detection_index",
+    "object_id",
+    "class_name",
+    "confidence",
+    "bbox",
+    "position",
+    "position_valid",
+    "position_reference",
+    "invalid_reason",
+    "reference_u",
+    "reference_v",
+    "valid_depth_fraction",
+    "orientation",
+    "orientation_valid",
+    "tracking_valid",
+)
+
+VISION_OBJECT_ARRAY_DICT_FIELDS = (
+    "header",
+    "source_session_id",
+    "observation_id",
+    "calibration_id",
+    "source_kind",
+    "tracking_session_id",
+    "objects",
+)
 
 
 def try_build_vision_detection_array_msg(batch: DetectionBatch):

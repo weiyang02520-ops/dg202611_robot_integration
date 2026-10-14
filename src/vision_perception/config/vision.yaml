@@ -5,7 +5,6 @@ vision_perception_node:
     # mode:=v1 (legacy) is rejected. Offline files use vision_offline_detect.
     mode: skeleton
     detector_enabled: false
-    tracking_enabled: false
     publish_debug_image: false
     debug_image_topic: /dg/vision/debug_image
     debug_image_max_hz: 2.0
@@ -13,6 +12,12 @@ vision_perception_node:
     backend: unconfigured
     model_path: ""
     model_manifest_path: ""
+
+    # V2/V3 gates — MUST remain false until separately authorized.
+    # Opening these does not implement depth/tracking; config validation rejects true.
+    enable_objects: false
+    enable_tracking: false
+    tracking_enabled: false  # legacy synonym of enable_tracking
 
     # Dev webcam default topic. ZED topic names are reserved for a later stage
     # and are NOT the v1_ros camera_contract (DEV_WEBCAM_ONLY / NOT_ZED).
@@ -27,7 +32,7 @@ vision_perception_node:
     image_frame_id: webcam_optical_frame
     camera_contract: NOT_RUN
 
-    # V4 plan defaults; skeleton does not enforce depth/sync.
+    # V4 plan defaults; V1 does not run depth/sync/tracking pipelines.
     output_frame_policy: input_optical_header
     sync_tolerance_sec: 0.010
     min_depth_m: 0.5

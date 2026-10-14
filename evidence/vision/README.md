@@ -7,6 +7,7 @@ Ubuntu103; this tree does **not** claim ZED or production camera acceptance.
 - Explicit `mode:=v1_ros` with local webcam or fake Image:
   `camera_contract=DEV_WEBCAM_ONLY / NOT_ZED`
 - `ARM_READY=NO`
+- `enable_objects` / `enable_tracking` remain **false** (V2/V3 not authorized)
 
 ## Run directory layout
 
@@ -18,8 +19,8 @@ history. Stage tags:
 | `V0_SHELL` | Package/shell only; `source_kind=NONE_NOT_APPLICABLE` |
 | `V1_OFFLINE` | File/offline 2D detection + labels/metrics |
 | `V1_ROS` | ROS Image path (dev webcam / fake / bag) — label source clearly |
-| `V2_POSITION` | Depth-qualified positions + independent truth |
-| `V3_TRACKING` | Identity sequences / reset / occlusion |
+| `V2_POSITION` | Depth-qualified positions + independent truth (**not authorized**) |
+| `V3_TRACKING` | Identity sequences / reset / occlusion (**not authorized**) |
 
 Each run must preserve at least:
 
@@ -32,6 +33,20 @@ Each run must preserve at least:
 V1 adds `detections.csv`, labels, boxed images and model manifest.
 Do not file a skeleton status heartbeat as a no-target detection run.
 Do not label DEV_WEBCAM evidence as ZED or METRIC_VALIDATED production acceptance.
+
+## Empty templates (copy then fill)
+
+| Template | Use |
+|---|---|
+| `templates/V1_OFFLINE/` | Offline CLI runs |
+| `templates/V1_ROS/` | `mode:=v1_ros` fake/webcam smokes |
+
+```bash
+RUN=evidence/vision/$(date +%Y%m%d)_V1_ROS_smoke01
+mkdir -p "$RUN/logs"
+cp evidence/vision/templates/V1_ROS/* "$RUN/"
+# rename *.template → final names, fill fields, then run and attach logs
+```
 
 Keep failed and incomplete runs. Model weights may be gitignored; record on-disk
 path and SHA256.

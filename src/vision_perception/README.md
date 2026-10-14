@@ -14,7 +14,7 @@ Independent manipulation-vision ROS2 package (arm-independent).
 | Offline CLI `vision_offline_detect` | File → JSON/CSV. No ROS camera claim. |
 | Legacy `mode:=v1` | **Rejected** (non-zero exit). |
 | ZED / production camera contract | **Not authorized here.** `camera_contract=DEV_WEBCAM_ONLY / NOT_ZED` for v1_ros. |
-| V2 depth / V3 tracking / arm | Not implemented. Does **not** publish `/dg/vision/objects`. `ARM_READY=NO`. `orientation_valid` stays false in V2 stubs. |
+| V2 depth / V3 tracking / arm | **Not authorized.** Config gates `enable_objects:=false`, `enable_tracking:=false` (true is rejected). Message types for `/dg/vision/objects` are frozen in `vision_perception_interfaces` only. `ARM_READY=NO`. `orientation_valid` stays false through V3. |
 
 ### 未做项（NOT_RUN — 勿记 PASS）
 
@@ -23,8 +23,11 @@ Independent manipulation-vision ROS2 package (arm-independent).
 | 实时相机 / 瓶杯图冒烟验收 | Needs Ubuntu103 + local ONNX + real bottle/cup photo or `/dev/video*` |
 | 导航 / 底盘 / `cmd_vel` / MODEL bringup | Out of scope; must not change |
 | ZED RGB-D 契约与配对 | V2; not authorized in this PR |
-| V2 `/objects` 深度选点、V3 跟踪 | Later stages |
+| V2 `/objects` 深度选点、配对、发布管线 | Needs separate auth; `enable_objects` must stay false |
+| V3 跟踪 | Needs separate auth; `enable_tracking` must stay false |
 | 真 ONNX 黄金样例比对 | Weights stay out of git; synthetic postprocess goldens cover format only |
+
+V1 evidence empty shells: `evidence/vision/templates/V1_OFFLINE/` and `V1_ROS/`.
 
 **Hard rules:** the node never auto-downloads weights; `.onnx` / `.pt` must stay out of git (see root `.gitignore`). License of upstream YOLO/COCO weights is separate from this repo — review before use; do not publish or redistribute weights until cleared.
 

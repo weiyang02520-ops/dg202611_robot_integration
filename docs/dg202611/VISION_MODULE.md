@@ -38,7 +38,9 @@ does **not** auto-download models and weights must not be committed.
   (`source_session_id`, `backend`, STALE when input age &gt; `input_stale_sec`).
 - Optional `publish_debug_image:=true` → `/dg/vision/debug_image` ≤2 Hz (default off).
 - Does **not** publish `/dg/vision/objects`, depth, tracking, TF, or cmd_vel.
-- `orientation_valid` remains false in V2-shaped placeholders.
+- Config gates `enable_objects` / `enable_tracking` default **false** (true rejected until authorized).
+- `VisionObject*` message shapes are frozen in `vision_perception_interfaces` (types only).
+- `orientation_valid` remains false in V2-shaped placeholders; `ARM_READY=NO`.
 
 Optional launch helpers:
 

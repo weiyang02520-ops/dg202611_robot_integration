@@ -24,6 +24,10 @@ class VisionConfig:
     model_path: str = ""
     model_manifest_path: str = ""
     detector_enabled: bool = False
+    # V2/V3 gates — must stay false until explicitly authorized (no pipeline yet).
+    enable_objects: bool = False
+    enable_tracking: bool = False
+    # Legacy synonym of enable_tracking (kept for existing YAML / tests).
     tracking_enabled: bool = False
     publish_debug_image: bool = False
     debug_image_topic: str = "/dg/vision/debug_image"
@@ -107,15 +111,32 @@ def _as_tuple_str(value: Any) -> Tuple[str, ...]:
     return tuple(str(item) for item in value)
 
 
+def _resolve_enable_tracking(data: Mapping[str, Any]) -> bool:
+    """Accept enable_tracking or legacy tracking_enabled; reject disagreement."""
+    has_new = "enable_tracking" in data
+    has_old = "tracking_enabled" in data
+    if has_new and has_old:
+        if as_bool(data["enable_tracking"]) != as_bool(data["tracking_enabled"]):
+            raise ValueError("enable_tracking and tracking_enabled disagree")
+    if has_new:
+        return as_bool(data["enable_tracking"])
+    if has_old:
+        return as_bool(data["tracking_enabled"])
+    return False
+
+
 def vision_config_from_mapping(raw: Mapping[str, Any] | None = None) -> VisionConfig:
     data: Dict[str, Any] = {} if raw is None else dict(raw)
+    enable_tracking = _resolve_enable_tracking(data)
     cfg = VisionConfig(
         mode=str(data.get("mode", DEFAULTS.mode)),
         backend=str(data.get("backend", DEFAULTS.backend)),
         model_path=str(data.get("model_path", DEFAULTS.model_path)),
         model_manifest_path=str(data.get("model_manifest_path", DEFAULTS.model_manifest_path)),
         detector_enabled=_as_bool(data.get("detector_enabled", DEFAULTS.detector_enabled)),
-        tracking_enabled=_as_bool(data.get("tracking_enabled", DEFAULTS.tracking_enabled)),
+        enable_objects=_as_bool(data.get("enable_objects", DEFAULTS.enable_objects)),
+        enable_tracking=enable_tracking,
+        tracking_enabled=enable_tracking,
         publish_debug_image=_as_bool(
             data.get("publish_debug_image", DEFAULTS.publish_debug_image)
         ),
@@ -197,9 +218,20 @@ def validate_vision_config(cfg: VisionConfig) -> None:
             raise ValueError(f"target_classes contains unsupported class {name!r}")
     if cfg.min_depth_m <= 0 or cfg.max_depth_m <= cfg.min_depth_m:
         raise ValueError("depth range must satisfy 0 < min_depth_m < max_depth_m")
+    # V2/V3 business pipelines are not authorized: refuse any enable flag.
+    if cfg.enable_objects:
+        raise ValueError(
+            "enable_objects=true is not authorized yet "
+            "(no /objects publish / depth pairing in this stage)"
+        )
+    if cfg.enable_tracking or cfg.tracking_enabled:
+        raise ValueError(
+            "enable_tracking/tracking_enabled=true is not authorized yet "
+            "(no tracker in this stage)"
+        )
     if cfg.mode == "skeleton":
-        if cfg.detector_enabled or cfg.tracking_enabled or cfg.publish_debug_image:
-            raise ValueError("skeleton mode forbids enabling detector/tracker/debug")
+        if cfg.detector_enabled or cfg.publish_debug_image:
+            raise ValueError("skeleton mode forbids enabling detector/debug")
         if cfg.backend != "unconfigured":
             raise ValueError("skeleton mode requires backend=unconfigured")
     if cfg.mode == "offline":
@@ -209,8 +241,6 @@ def validate_vision_config(cfg: VisionConfig) -> None:
             raise ValueError("offline mode requires model_path")
         if not cfg.model_manifest_path:
             raise ValueError("offline mode requires model_manifest_path")
-        if cfg.tracking_enabled:
-            raise ValueError("V1 offline path does not enable tracking")
     if cfg.mode == "v1_ros":
         if cfg.backend != "onnxruntime_cpu":
             raise ValueError("v1_ros mode requires backend=onnxruntime_cpu")
@@ -220,8 +250,6 @@ def validate_vision_config(cfg: VisionConfig) -> None:
             raise ValueError("v1_ros mode requires model_manifest_path")
         if not cfg.detector_enabled:
             raise ValueError("v1_ros mode requires detector_enabled=true")
-        if cfg.tracking_enabled:
-            raise ValueError("v1_ros does not enable tracking")
         if not cfg.rgb_topic:
             raise ValueError("v1_ros mode requires rgb_topic")
         contract = cfg.camera_contract.upper()
