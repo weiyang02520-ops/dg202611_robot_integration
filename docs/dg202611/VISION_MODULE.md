@@ -97,6 +97,14 @@ Without `/dev/video*` → use `use_fake_image:=true` instead of webcam.
 OpenCV; NumPy 2.x breaks cv2 (`_ARRAY_API`). Empty `detections=[]` on fake
 frames keeps status OK (`V1_ROS_DEV_WEBCAM` / `empty_detections_healthy=true`).
 
+## Packaging note
+
+`vision_perception` uses **ament_cmake + ament_cmake_python** so
+`ament_package()` emits `ament_prefix_path` hooks. After isolated colcon
+install, `source install/setup.bash && ros2 pkg prefix vision_perception`
+must work without hand-exporting `AMENT_PREFIX_PATH`. Regression script:
+`src/vision_perception/scripts/check_ament_prefix_hook.sh`.
+
 ## Verification
 
 - Unit tests: `PYTHONPATH=src/vision_perception python3 -m pytest src/vision_perception/test -q`

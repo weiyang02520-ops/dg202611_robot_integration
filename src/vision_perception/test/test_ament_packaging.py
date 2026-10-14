@@ -1,8 +1,4 @@
-"""Guard ament_python install layout (no ROS required).
-
-Duplicate setuptools data_files destinations drop earlier files (e.g. package.xml),
-which breaks ament_prefix_path / ``ros2 pkg prefix`` after isolated colcon install.
-"""
+"""Guard ament_cmake_python layout that emits ament_prefix_path hooks."""
 
 from __future__ import annotations
 
@@ -13,65 +9,58 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_setup_py_uses_unique_data_files_helper():
-    text = (ROOT / "setup.py").read_text(encoding="utf-8")
-    assert "def _unique_data_files" in text
-    assert "duplicate data_files destinations" in text
-    assert 'resource/" + PACKAGE_NAME' in text or "resource/" + "vision_perception" in text
-    assert '"package.xml"' in text
-    assert '"requirements-runtime.txt"' in text
-    # package.xml must be installed together with other share/pkg files (one dest).
-    assert "share_pkg" in text
-
-
-def test_resource_marker_and_package_xml_exist():
-    assert (ROOT / "resource" / "vision_perception").is_file()
-    assert (ROOT / "package.xml").is_file()
+def test_package_xml_is_ament_cmake_python_hybrid():
     xml = (ROOT / "package.xml").read_text(encoding="utf-8")
-    assert "<name>vision_perception</name>" in xml
-    assert "ament_python" in xml
+    assert "<buildtool_depend>ament_cmake</buildtool_depend>" in xml
+    assert "<buildtool_depend>ament_cmake_python</buildtool_depend>" in xml
+    assert "<build_type>ament_cmake</build_type>" in xml
+    assert "ament_python</build_type>" not in xml
 
 
-def test_setup_py_ast_calls_unique_data_files():
-    tree = ast.parse((ROOT / "setup.py").read_text(encoding="utf-8"))
-    calls = [
+def test_cmakelists_calls_ament_package_and_python_install():
+    text = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
+    assert "ament_cmake_python" in text
+    assert "ament_python_install_package(${PROJECT_NAME})" in text
+    assert "ament_package()" in text
+    assert "install(DIRECTORY launch config examples" in text
+    # Document why we switched away from pure ament_python.
+    assert "ament_prefix_path" in text
+
+
+def test_setup_py_does_not_install_share_data_files():
+    """setuptools share/ installs can clobber ament-generated hooks."""
+    text = (ROOT / "setup.py").read_text(encoding="utf-8")
+    assert "data_files=[]" in text or "data_files = []" in text
+    assert "share/ament_index" not in text
+    assert "_unique_data_files" not in text
+
+    tree = ast.parse(text)
+    setup_calls = [
         node
         for node in ast.walk(tree)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
         and node.func.id == "setup"
     ]
-    assert calls, "setup() call not found"
-    setup_call = calls[0]
-    keywords = {kw.arg: kw.value for kw in setup_call.keywords if kw.arg}
+    assert setup_calls
+    keywords = {kw.arg: kw.value for kw in setup_calls[0].keywords if kw.arg}
     assert "data_files" in keywords
     value = keywords["data_files"]
-    assert isinstance(value, ast.Call)
-    assert isinstance(value.func, ast.Name)
-    assert value.func.id == "_unique_data_files"
+    assert isinstance(value, ast.List)
+    assert value.elts == []
 
 
-def test_unique_data_files_runs_and_includes_ament_marker():
-    # Execute helper in package directory context without invoking setup().
-    ns: dict = {"__file__": str(ROOT / "setup.py")}
-    code = (ROOT / "setup.py").read_text(encoding="utf-8")
-    # Strip the setup() call so importing logic is safe under pytest.
-    trimmed = code.split("\nsetup(")[0] + "\n"
-    import os
+def test_check_ament_prefix_hook_script_exists():
+    script = ROOT / "scripts" / "check_ament_prefix_hook.sh"
+    assert script.is_file()
+    text = script.read_text(encoding="utf-8")
+    assert "ros2 pkg prefix" in text
+    assert "ament_prefix_path" in text
+    assert "AMENT_PREFIX_PATH" in text
 
-    prev = os.getcwd()
-    os.chdir(ROOT)
-    try:
-        exec(compile(trimmed, str(ROOT / "setup.py"), "exec"), ns, ns)
-        entries = ns["_unique_data_files"]()
-    finally:
-        os.chdir(prev)
 
-    destinations = [dest for dest, _ in entries]
-    assert len(destinations) == len(set(destinations))
-    assert "share/ament_index/resource_index/packages" in destinations
-    share_files = dict(entries)["share/vision_perception"]
-    assert "package.xml" in share_files
-    assert "requirements-runtime.txt" in share_files
-    marker_files = dict(entries)["share/ament_index/resource_index/packages"]
-    assert marker_files == ["resource/vision_perception"]
+def test_package_xml_and_readme_still_present_for_cmake_install():
+    assert (ROOT / "package.xml").is_file()
+    assert (ROOT / "README.md").is_file()
+    assert (ROOT / "requirements-runtime.txt").is_file()
+    assert (ROOT / "launch" / "vision.launch.py").is_file()

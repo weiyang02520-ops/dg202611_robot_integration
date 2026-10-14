@@ -19,16 +19,23 @@ Independent manipulation-vision ROS2 package (arm-independent).
 
 ## Build (Humble)
 
+`vision_perception` is **ament_cmake + ament_cmake_python** (not pure
+`ament_python`) so `ament_package()` writes `ament_prefix_path` hooks into
+`package.dsv`. Pure setuptools installs on Ubuntu103 left only `pythonpath`
+hooks, which broke `ros2 pkg prefix` after `source install/setup.bash`.
+
 ```bash
 source /opt/ros/humble/setup.bash
-# Prefer clean install prefixes after packaging fixes:
-rm -rf build/vision_perception install/vision_perception log/latest*
+# Clean rebuild required after packaging-type change:
+rm -rf build/vision_perception install/vision_perception
 colcon build --symlink-install --packages-select vision_perception_interfaces vision_perception
 source install/setup.bash
 
-# Must work without manually exporting AMENT_PREFIX_PATH:
+# Must work WITHOUT manually exporting AMENT_PREFIX_PATH:
 ros2 pkg list | grep vision_perception
 ros2 pkg prefix vision_perception
+grep ament_prefix_path "$(ros2 pkg prefix vision_perception)/share/vision_perception/package.dsv"
+bash src/vision_perception/scripts/check_ament_prefix_hook.sh
 ros2 launch vision_perception vision.launch.py --show-args
 ```
 

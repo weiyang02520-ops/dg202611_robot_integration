@@ -1,11 +1,15 @@
 <?xml version="1.0"?>
 <package format="3">
   <name>vision_perception</name>
-  <version>0.1.3</version>
+  <version>0.1.4</version>
   <description>Independent manipulation-vision: skeleton, offline V1, optional v1_ros webcam path.</description>
   <maintainer email="206929594+liaojingwu20041031@users.noreply.github.com">liaojingwu20041031</maintainer>
   <license>Apache-2.0</license>
-  <buildtool_depend>ament_python</buildtool_depend>
+
+  <!-- ament_cmake_python so ament_package() emits ament_prefix_path hooks. -->
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
+
   <exec_depend>rclpy</exec_depend>
   <exec_depend>diagnostic_msgs</exec_depend>
   <exec_depend>ament_index_python</exec_depend>
@@ -25,6 +29,6 @@
   <exec_depend>python3-opencv</exec_depend>
   <test_depend>python3-pytest</test_depend>
   <export>
-    <build_type>ament_python</build_type>
+    <build_type>ament_cmake</build_type>
   </export>
 </package>

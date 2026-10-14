@@ -1,7 +1,9 @@
-"""Install the independent perception package, offline CLI and assets."""
+"""Python package metadata for ament_cmake_python install.
 
-from glob import glob
-import os
+Share assets and ament index / ament_prefix_path hooks are installed by
+CMakeLists.txt via ament_package(). Do NOT install share/ paths from here —
+setuptools data_files can clobber colcon/ament-generated hooks.
+"""
 
 from setuptools import setup
 
@@ -16,45 +18,13 @@ _RUNTIME_REQUIRES = [
     "onnxruntime==1.20.1",
 ]
 
-
-def _unique_data_files():
-    """Build data_files with unique destinations.
-
-    setuptools keeps only the *last* entry per destination directory. Splitting
-    ``share/<pkg>`` across multiple tuples drops package.xml and breaks
-    ament_prefix_path / ``ros2 pkg prefix`` after isolated colcon install.
-    """
-    share_pkg = [
-        "package.xml",
-        "README.md",
-        "requirements-runtime.txt",
-    ]
-    entries = [
-        # Marker required for ament index + ament_prefix_path hook generation.
-        ("share/ament_index/resource_index/packages", ["resource/" + PACKAGE_NAME]),
-        ("share/" + PACKAGE_NAME, share_pkg),
-        ("share/" + PACKAGE_NAME + "/launch", sorted(glob("launch/*.launch.py"))),
-        ("share/" + PACKAGE_NAME + "/config", sorted(glob("config/*"))),
-        ("share/" + PACKAGE_NAME + "/examples", sorted(glob("examples/*"))),
-    ]
-    # Guard against accidental duplicate destinations in future edits.
-    destinations = [dest for dest, _ in entries]
-    if len(destinations) != len(set(destinations)):
-        raise RuntimeError(
-            f"duplicate data_files destinations in setup.py: {destinations}"
-        )
-    for dest, files in entries:
-        for path in files:
-            if not os.path.exists(path):
-                raise FileNotFoundError(f"data_files missing path: {path}")
-    return entries
-
-
 setup(
     name=PACKAGE_NAME,
-    version="0.1.3",
+    version="0.1.4",
     packages=[PACKAGE_NAME],
-    data_files=_unique_data_files(),
+    # Intentionally empty: CMake installs launch/config/examples/package.xml and
+    # ament_package() creates ament_prefix_path hooks + ament index marker.
+    data_files=[],
     install_requires=["setuptools", *_RUNTIME_REQUIRES],
     zip_safe=True,
     maintainer="liaojingwu20041031",
