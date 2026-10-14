@@ -1,8 +1,8 @@
 vision_perception_node:
   ros__parameters:
-    # ROS node default remains skeleton-only (no camera / inference).
-    # V1 offline file detection uses: ros2 run vision_perception vision_offline_detect
-    # Unsupported ROS modes are rejected at startup. Parameters are startup-only.
+    # Default remains skeleton-only (no camera / inference / detections).
+    # Explicit V1 ROS path: mode:=v1_ros with local model + Image topic / webcam.
+    # mode:=v1 (legacy) is rejected. Offline files use vision_offline_detect.
     mode: skeleton
     detector_enabled: false
     tracking_enabled: false
@@ -11,16 +11,20 @@ vision_perception_node:
     model_path: ""
     model_manifest_path: ""
 
-    # Reserved interface names. Local ZED names are source-supported, not hardware-verified.
-    rgb_topic: /zed/zed_node/rgb/color/rect/image
+    # Dev webcam default topic. ZED topic names are reserved for a later stage
+    # and are NOT the v1_ros camera_contract (DEV_WEBCAM_ONLY / NOT_ZED).
+    rgb_topic: /dg/vision/webcam/image_raw
     depth_topic: /zed/zed_node/depth/depth_registered
     camera_info_topic: /zed/zed_node/rgb/color/rect/camera_info
     detections_topic: /dg/vision/detections_2d
     objects_topic: /dg/vision/objects
     status_topic: /dg/vision/status
     target_classes: [bottle, cup]
+    video_device: 0
+    image_frame_id: webcam_optical_frame
+    camera_contract: NOT_RUN
 
-    # V4 plan defaults for future V1-C / V2; skeleton does not enforce depth/sync.
+    # V4 plan defaults; skeleton does not enforce depth/sync.
     output_frame_policy: input_optical_header
     sync_tolerance_sec: 0.010
     min_depth_m: 0.5
@@ -32,3 +36,4 @@ vision_perception_node:
     ort_threads: 2
     model_input_size: 640
     status_rate_hz: 1.0
+    pending_frames: 1

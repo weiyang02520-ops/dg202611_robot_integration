@@ -9,6 +9,7 @@ import pytest
 
 from vision_perception.config import (
     load_model_manifest,
+    normalize_ros_node_mode,
     require_ros_skeleton_mode,
     validate_manifest_shapes,
     validate_vision_config,
@@ -122,8 +123,37 @@ def test_validate_rejects_mode_v1_for_shared_config():
 
 
 def test_ros_node_helper_rejects_v1_even_if_offline_config_exists():
-    # ROS node path is stricter than shared VisionConfig (offline is CLI-only).
+    # ROS node path rejects legacy v1 and offline (CLI-only).
     with pytest.raises(ValueError, match="Unsupported ROS mode"):
-        require_ros_skeleton_mode("v1")
+        normalize_ros_node_mode("v1")
     with pytest.raises(ValueError, match="Unsupported ROS mode"):
-        require_ros_skeleton_mode("offline")
+        normalize_ros_node_mode("offline")
+    with pytest.raises(ValueError):
+        require_ros_skeleton_mode("v1_ros")
+
+
+def test_v1_ros_config_requires_model_and_dev_webcam_contract(tmp_path: Path):
+    cfg = vision_config_from_mapping(
+        {
+            "mode": "v1_ros",
+            "backend": "onnxruntime_cpu",
+            "model_path": str(tmp_path / "m.onnx"),
+            "model_manifest_path": str(tmp_path / "m.json"),
+            "detector_enabled": True,
+            "camera_contract": "DEV_WEBCAM_ONLY / NOT_ZED",
+            "rgb_topic": "/dg/vision/webcam/image_raw",
+        }
+    )
+    assert cfg.mode == "v1_ros"
+    with pytest.raises(ValueError, match="camera_contract"):
+        vision_config_from_mapping(
+            {
+                "mode": "v1_ros",
+                "backend": "onnxruntime_cpu",
+                "model_path": str(tmp_path / "m.onnx"),
+                "model_manifest_path": str(tmp_path / "m.json"),
+                "detector_enabled": True,
+                "camera_contract": "ZED_VERIFIED",
+                "rgb_topic": "/dg/vision/webcam/image_raw",
+            }
+        )

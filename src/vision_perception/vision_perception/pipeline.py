@@ -1,4 +1,4 @@
-"""Compose preprocess → ONNX → postprocess for offline V1 detection."""
+"""Compose preprocess → ONNX → postprocess for offline / v1_ros detection."""
 
 from __future__ import annotations
 
@@ -20,31 +20,37 @@ from vision_perception.onnx_backend import OnnxSession, create_onnx_session, run
 from vision_perception.postprocess import decode_yolo11_seg_boxes
 from vision_perception.types import (
     SOURCE_KIND_FILE,
+    SOURCE_KIND_LIVE,
     DetectionBatch,
     FrameKey,
 )
 
 
 @dataclass
-class OfflineEngine:
+class DetectionEngine:
+    """Shared engine for offline files and v1_ros Image subscription path."""
+
     config: VisionConfig
     session: OnnxSession
     source_session_id: str
+    default_source_kind: str
     _next_observation_id: int = 1
 
     @classmethod
-    def from_config(cls, config: VisionConfig) -> "OfflineEngine":
-        if config.mode != "offline":
-            raise ValueError("OfflineEngine requires mode=offline")
+    def from_config(cls, config: VisionConfig) -> "DetectionEngine":
+        if config.mode not in {"offline", "v1_ros"}:
+            raise ValueError("DetectionEngine requires mode=offline or mode=v1_ros")
         session = create_onnx_session(
             model_path=config.model_path,
             manifest_path=config.model_manifest_path,
             ort_threads=config.ort_threads,
         )
+        source_kind = SOURCE_KIND_FILE if config.mode == "offline" else SOURCE_KIND_LIVE
         return cls(
             config=config,
             session=session,
             source_session_id=str(uuid.uuid4()),
+            default_source_kind=source_kind,
         )
 
     def process_rgb_array(
@@ -53,6 +59,10 @@ class OfflineEngine:
         *,
         source_image_id: str = "",
         frame_id: str = "",
+        source_kind: Optional[str] = None,
+        stamp_sec: int = 0,
+        stamp_nanosec: int = 0,
+        calibration_id: str = "",
     ) -> DetectionBatch:
         canvas, meta = letterbox_rgb(image_rgb, model_size=self.config.model_input_size)
         tensor = letterbox_to_nchw_float32(canvas)
@@ -72,11 +82,11 @@ class OfflineEngine:
         key = FrameKey(
             source_session_id=self.source_session_id,
             observation_id=observation_id,
-            source_kind=SOURCE_KIND_FILE,
-            calibration_id="",
+            source_kind=source_kind or self.default_source_kind,
+            calibration_id=calibration_id,
             frame_id=frame_id,
-            source_stamp_sec=0,
-            source_stamp_nanosec=0,
+            source_stamp_sec=int(stamp_sec),
+            source_stamp_nanosec=int(stamp_nanosec),
             source_image_id=source_image_id,
         )
         return DetectionBatch(
@@ -92,7 +102,12 @@ class OfflineEngine:
             image,
             source_image_id=str(Path(path).name),
             frame_id="",
+            source_kind=SOURCE_KIND_FILE,
         )
+
+
+# Backward-compatible alias used by older offline CLI imports.
+OfflineEngine = DetectionEngine
 
 
 def run_offline_on_paths(
@@ -105,7 +120,7 @@ def run_offline_on_paths(
     max_detections: int = 20,
     ort_threads: int = 2,
 ) -> List[dict]:
-    """Convenience helper used by the CLI and tests with a fake backend override."""
+    """Convenience helper used by the CLI."""
     config = vision_config_from_mapping(
         {
             "mode": "offline",
@@ -119,7 +134,7 @@ def run_offline_on_paths(
             "detector_enabled": True,
         }
     )
-    engine = OfflineEngine.from_config(config)
+    engine = DetectionEngine.from_config(config)
     results = []
     for path in image_paths:
         batch = engine.process_image_file(path)
@@ -136,8 +151,12 @@ def process_array_with_synthetic_output0(
     nms_iou_threshold: float = 0.45,
     max_detections: int = 20,
     source_image_id: str = "synthetic",
+    source_kind: str = SOURCE_KIND_FILE,
+    stamp_sec: int = 0,
+    stamp_nanosec: int = 0,
+    frame_id: str = "",
 ) -> DetectionBatch:
-    """Offline-path postprocess using a caller-provided model tensor (no ORT)."""
+    """Detection-path postprocess using a caller-provided model tensor (no ORT)."""
     _canvas, meta = letterbox_rgb(image_rgb, model_size=640)
     mapping = class_id_to_name or {39: "bottle", 41: "cup"}
     detections = decode_yolo11_seg_boxes(
@@ -151,8 +170,11 @@ def process_array_with_synthetic_output0(
     key = FrameKey(
         source_session_id="synthetic-session",
         observation_id=1,
-        source_kind=SOURCE_KIND_FILE,
+        source_kind=source_kind,
         source_image_id=source_image_id,
+        frame_id=frame_id,
+        source_stamp_sec=stamp_sec,
+        source_stamp_nanosec=stamp_nanosec,
     )
     return DetectionBatch(
         key=key,

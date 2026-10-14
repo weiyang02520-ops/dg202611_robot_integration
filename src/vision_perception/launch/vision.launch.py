@@ -1,8 +1,7 @@
-"""Start only the inert vision shell; never include hardware or robot bringup.
+"""Vision launch: default skeleton; optional v1_ros + local webcam Image source.
 
-Launch argument mode is forwarded to the node parameter. Non-skeleton values
-must cause the node to reject startup with a non-zero exit (same as
-`ros2 run ... --ros-args -p mode:=v1`).
+mode:=v1 remains unsupported (node rejects). ZED is not started here.
+camera_contract for v1_ros is DEV_WEBCAM_ONLY / NOT_ZED.
 """
 
 import os
@@ -10,6 +9,7 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
+from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
@@ -23,10 +23,51 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "mode",
             default_value="skeleton",
-            description=(
-                "ROS node mode. Only 'skeleton' is supported; "
-                "v1/offline/other values must fail startup."
-            ),
+            description="skeleton (default) or v1_ros. mode:=v1 is rejected.",
+        ),
+        DeclareLaunchArgument(
+            "use_webcam",
+            default_value="false",
+            description="If true, also start vision_webcam_publisher (V4L2/OpenCV).",
+        ),
+        DeclareLaunchArgument(
+            "use_fake_image",
+            default_value="false",
+            description="If true, publish synthetic RGB (no camera hardware).",
+        ),
+        DeclareLaunchArgument("video_device", default_value="0"),
+        DeclareLaunchArgument(
+            "rgb_topic",
+            default_value="/dg/vision/webcam/image_raw",
+        ),
+        DeclareLaunchArgument("model_path", default_value=""),
+        DeclareLaunchArgument("model_manifest_path", default_value=""),
+        DeclareLaunchArgument(
+            "camera_contract",
+            default_value="DEV_WEBCAM_ONLY / NOT_ZED",
+        ),
+        Node(
+            package="vision_perception",
+            executable="vision_webcam_publisher",
+            name="vision_webcam_publisher",
+            output="screen",
+            condition=IfCondition(LaunchConfiguration("use_webcam")),
+            parameters=[{
+                "video_device": LaunchConfiguration("video_device"),
+                "image_topic": LaunchConfiguration("rgb_topic"),
+                "frame_id": "webcam_optical_frame",
+            }],
+        ),
+        Node(
+            package="vision_perception",
+            executable="vision_fake_image_publisher",
+            name="vision_fake_image_publisher",
+            output="screen",
+            condition=IfCondition(LaunchConfiguration("use_fake_image")),
+            parameters=[{
+                "image_topic": LaunchConfiguration("rgb_topic"),
+                "frame_id": "fake_webcam_optical_frame",
+            }],
         ),
         Node(
             package="vision_perception",
@@ -35,8 +76,13 @@ def generate_launch_description():
             output="screen",
             parameters=[
                 LaunchConfiguration("params_file"),
-                # Override YAML so `mode:=v1` is not silently ignored.
-                {"mode": LaunchConfiguration("mode")},
+                {
+                    "mode": LaunchConfiguration("mode"),
+                    "rgb_topic": LaunchConfiguration("rgb_topic"),
+                    "model_path": LaunchConfiguration("model_path"),
+                    "model_manifest_path": LaunchConfiguration("model_manifest_path"),
+                    "camera_contract": LaunchConfiguration("camera_contract"),
+                },
             ],
         ),
     ])

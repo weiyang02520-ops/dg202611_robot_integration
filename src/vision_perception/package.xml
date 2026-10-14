@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <package format="3">
   <name>vision_perception</name>
-  <version>0.1.0</version>
-  <description>Independent manipulation-vision: skeleton shell and V1 offline 2D detection path.</description>
+  <version>0.1.1</version>
+  <description>Independent manipulation-vision: skeleton, offline V1, optional v1_ros webcam path.</description>
   <maintainer email="206929594+liaojingwu20041031@users.noreply.github.com">liaojingwu20041031</maintainer>
   <license>Apache-2.0</license>
   <buildtool_depend>ament_python</buildtool_depend>

@@ -12,6 +12,11 @@ from typing import Any, Dict, Mapping, Tuple
 from vision_perception.types import ALLOWED_CLASSES, ModelManifest
 
 
+CAMERA_CONTRACT_NOT_RUN = "NOT_RUN"
+CAMERA_CONTRACT_DEV_WEBCAM = "DEV_WEBCAM_ONLY"
+CAMERA_CONTRACT_NOT_ZED = "NOT_ZED"
+
+
 @dataclass(frozen=True)
 class VisionConfig:
     mode: str = "skeleton"
@@ -24,7 +29,8 @@ class VisionConfig:
     status_topic: str = "/dg/vision/status"
     detections_topic: str = "/dg/vision/detections_2d"
     objects_topic: str = "/dg/vision/objects"
-    rgb_topic: str = "/zed/zed_node/rgb/color/rect/image"
+    # Dev default is local webcam topic; ZED names are reserved for a later stage.
+    rgb_topic: str = "/dg/vision/webcam/image_raw"
     depth_topic: str = "/zed/zed_node/depth/depth_registered"
     camera_info_topic: str = "/zed/zed_node/rgb/color/rect/camera_info"
     target_classes: Tuple[str, ...] = ALLOWED_CLASSES
@@ -41,24 +47,37 @@ class VisionConfig:
     sync_tolerance_sec: float = 0.010
     min_depth_m: float = 0.5
     max_depth_m: float = 1.5
+    video_device: int = 0
+    image_frame_id: str = "webcam_optical_frame"
+    camera_contract: str = CAMERA_CONTRACT_NOT_RUN
 
 
 DEFAULTS = VisionConfig()
 
-# ROS vision_perception_node allows only skeleton. Offline detection is CLI-only.
-ROS_NODE_ALLOWED_MODES = frozenset({"skeleton"})
+# ROS vision_perception_node: skeleton (inert) or explicit v1_ros (RGB → detections).
+# mode:=v1 (legacy) and offline remain rejected on the ROS node.
+ROS_NODE_ALLOWED_MODES = frozenset({"skeleton", "v1_ros"})
 
 
-def require_ros_skeleton_mode(mode: Any) -> str:
-    """Reject any non-skeleton mode for the ROS node (non-zero startup failure).
-
-    Offline file detection must use vision_offline_detect, not mode:=offline/v1.
-    """
+def normalize_ros_node_mode(mode: Any) -> str:
+    """Allow only skeleton / v1_ros for the ROS node; reject mode:=v1 and others."""
     normalized = str(mode).strip()
     if normalized not in ROS_NODE_ALLOWED_MODES:
         raise ValueError(
-            f"Unsupported ROS mode={normalized!r}; only mode='skeleton' is allowed. "
-            "Use vision_offline_detect for V1 file-based offline detection (no camera)."
+            f"Unsupported ROS mode={normalized!r}; allowed modes are "
+            f"{sorted(ROS_NODE_ALLOWED_MODES)}. "
+            "mode:='v1' is rejected. Offline files use vision_offline_detect."
+        )
+    return normalized
+
+
+def require_ros_skeleton_mode(mode: Any) -> str:
+    """Backward-compatible helper: accept skeleton only (used by older tests/docs)."""
+    normalized = normalize_ros_node_mode(mode)
+    if normalized != "skeleton":
+        raise ValueError(
+            f"Unsupported ROS mode={normalized!r}; only mode='skeleton' is allowed "
+            "by this helper. Use normalize_ros_node_mode for v1_ros."
         )
     return normalized
 
@@ -118,15 +137,19 @@ def vision_config_from_mapping(raw: Mapping[str, Any] | None = None) -> VisionCo
         ),
         min_depth_m=float(data.get("min_depth_m", DEFAULTS.min_depth_m)),
         max_depth_m=float(data.get("max_depth_m", DEFAULTS.max_depth_m)),
+        video_device=int(data.get("video_device", DEFAULTS.video_device)),
+        image_frame_id=str(data.get("image_frame_id", DEFAULTS.image_frame_id)),
+        camera_contract=str(data.get("camera_contract", DEFAULTS.camera_contract)),
     )
     validate_vision_config(cfg)
     return cfg
 
 
 def validate_vision_config(cfg: VisionConfig) -> None:
-    if cfg.mode not in {"skeleton", "offline"}:
+    if cfg.mode not in {"skeleton", "offline", "v1_ros"}:
         raise ValueError(
-            f"Unsupported mode={cfg.mode!r}; allowed modes are 'skeleton' and 'offline'"
+            f"Unsupported mode={cfg.mode!r}; allowed modes are "
+            "'skeleton', 'offline', 'v1_ros'"
         )
     if not cfg.status_topic.startswith("/dg/vision/"):
         raise ValueError("status_topic must remain within /dg/vision/")
@@ -167,6 +190,29 @@ def validate_vision_config(cfg: VisionConfig) -> None:
             raise ValueError("offline mode requires model_manifest_path")
         if cfg.tracking_enabled:
             raise ValueError("V1 offline path does not enable tracking")
+    if cfg.mode == "v1_ros":
+        if cfg.backend != "onnxruntime_cpu":
+            raise ValueError("v1_ros mode requires backend=onnxruntime_cpu")
+        if not cfg.model_path:
+            raise ValueError("v1_ros mode requires model_path")
+        if not cfg.model_manifest_path:
+            raise ValueError("v1_ros mode requires model_manifest_path")
+        if not cfg.detector_enabled:
+            raise ValueError("v1_ros mode requires detector_enabled=true")
+        if cfg.tracking_enabled:
+            raise ValueError("v1_ros does not enable tracking")
+        if not cfg.rgb_topic:
+            raise ValueError("v1_ros mode requires rgb_topic")
+        contract = cfg.camera_contract.upper()
+        if "DEV_WEBCAM_ONLY" not in contract:
+            raise ValueError(
+                "v1_ros camera_contract must include DEV_WEBCAM_ONLY "
+                "(ZED contract is not authorized in this stage)"
+            )
+        if "ZED" in contract and "NOT_ZED" not in contract and "NOT ZED" not in contract:
+            raise ValueError(
+                "v1_ros must not claim a ZED camera_contract; use DEV_WEBCAM_ONLY / NOT_ZED"
+            )
 
 
 def load_model_manifest(path: str) -> ModelManifest:
@@ -195,7 +241,6 @@ def load_model_manifest(path: str) -> ModelManifest:
     for name in ALLOWED_CLASSES:
         if name not in class_map:
             raise ValueError(f"model manifest class_map missing required class {name!r}")
-    # Standard COCO ids are the baseline contract.
     if class_map["bottle"] != 39 or class_map["cup"] != 41:
         raise ValueError(
             "class_map must use COCO ids bottle=39 and cup=41 unless explicitly re-authorized"

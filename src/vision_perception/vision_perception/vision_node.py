@@ -1,27 +1,43 @@
-"""ROS2 shell: skeleton status only. No camera, inference or control endpoints.
+"""ROS2 vision node: skeleton (default) or explicit v1_ros RGB detection.
 
-V1 offline detection lives in offline_cli / pipeline and does not run here.
-Live camera ROS detection (V1-C) is not enabled in this node.
+skeleton: status only — no camera, no inference, no detections.
+v1_ros: subscribe sensor_msgs/Image, run DetectionEngine, publish
+        VisionDetectionArray on /dg/vision/detections_2d + status.
+mode:=v1 (legacy) remains rejected. No depth/objects/cmd_vel/TF/ZED SDK.
+camera_contract for v1_ros: DEV_WEBCAM_ONLY / NOT_ZED.
 """
 
+from __future__ import annotations
+
 import sys
+from typing import Any, Optional
 
 import rclpy
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
+from sensor_msgs.msg import Image
 
-from vision_perception.config import require_ros_skeleton_mode
+from vision_perception.config import (
+    CAMERA_CONTRACT_DEV_WEBCAM,
+    CAMERA_CONTRACT_NOT_RUN,
+    normalize_ros_node_mode,
+    vision_config_from_mapping,
+)
+from vision_perception.frame_worker import LatestFrameWorker
+from vision_perception.message_mapping import try_build_vision_detection_array_msg
+from vision_perception.pipeline import DetectionEngine
+from vision_perception.ros_image_bridge import decode_sensor_image_msg
 
 
 class VisionPerceptionNode(Node):
-    """Reserve configuration and expose an explicit non-operational status."""
+    """Skeleton status shell, or v1_ros Image→detections path when explicitly enabled."""
 
     def __init__(self):
         super().__init__("vision_perception_node")
         defaults = {
             "mode": "skeleton",
-            "rgb_topic": "/zed/zed_node/rgb/color/rect/image",
+            "rgb_topic": "/dg/vision/webcam/image_raw",
             "depth_topic": "/zed/zed_node/depth/depth_registered",
             "camera_info_topic": "/zed/zed_node/rgb/color/rect/camera_info",
             "detections_topic": "/dg/vision/detections_2d",
@@ -45,17 +61,77 @@ class VisionPerceptionNode(Node):
             "ort_threads": 2,
             "model_input_size": 640,
             "status_rate_hz": 1.0,
+            "video_device": 0,
+            "image_frame_id": "webcam_optical_frame",
+            "camera_contract": CAMERA_CONTRACT_NOT_RUN,
+            "pending_frames": 1,
         }
         for name, default in defaults.items():
             self.declare_parameter(name, default)
 
-        mode = self.get_parameter("mode").value
-        try:
-            require_ros_skeleton_mode(mode)
-        except ValueError as exc:
-            self.get_logger().error(str(exc))
-            raise
+        mode = normalize_ros_node_mode(self.get_parameter("mode").value)
+        self._mode = mode
+        self._engine: Optional[DetectionEngine] = None
+        self._worker: Optional[LatestFrameWorker] = None
+        self._detections_pub = None
+        self._image_sub = None
+        self._frames_received = 0
+        self._last_observation_id = 0
+        self._implementation_status = "SKELETON_ONLY"
+        self._camera_contract = CAMERA_CONTRACT_NOT_RUN
+        self._inference_active = False
+        self._camera_subscriptions_active = False
 
+        status_topic = self.get_parameter("status_topic").value
+        if not status_topic.startswith("/dg/vision/"):
+            raise ValueError("status_topic must remain within /dg/vision/")
+        self._status_publisher = self.create_publisher(DiagnosticArray, status_topic, 1)
+
+        if mode == "skeleton":
+            self._init_skeleton()
+        else:
+            self._init_v1_ros()
+
+        rate_hz = float(self.get_parameter("status_rate_hz").value)
+        if rate_hz <= 0:
+            raise ValueError("status_rate_hz must be > 0")
+        self._timer = self.create_timer(1.0 / rate_hz, self._publish_status)
+
+    def _param_map(self) -> dict:
+        names = [
+            "mode",
+            "backend",
+            "model_path",
+            "model_manifest_path",
+            "detector_enabled",
+            "tracking_enabled",
+            "publish_debug_image",
+            "status_topic",
+            "detections_topic",
+            "objects_topic",
+            "rgb_topic",
+            "depth_topic",
+            "camera_info_topic",
+            "target_classes",
+            "inference_rate_hz",
+            "pending_frames",
+            "ort_threads",
+            "model_input_size",
+            "confidence_threshold",
+            "nms_iou_threshold",
+            "max_detections",
+            "status_rate_hz",
+            "output_frame_policy",
+            "sync_tolerance_sec",
+            "min_depth_m",
+            "max_depth_m",
+            "video_device",
+            "image_frame_id",
+            "camera_contract",
+        ]
+        return {name: self.get_parameter(name).value for name in names}
+
+    def _init_skeleton(self) -> None:
         enabled = any(
             self.get_parameter(name).value
             for name in ("detector_enabled", "tracking_enabled", "publish_debug_image")
@@ -64,47 +140,128 @@ class VisionPerceptionNode(Node):
             raise ValueError(
                 "Inference, tracking and debug rendering are not active in skeleton mode"
             )
-        status_topic = self.get_parameter("status_topic").value
-        if not status_topic.startswith("/dg/vision/"):
-            raise ValueError("Scaffold status must remain within /dg/vision/")
-
-        self._status_publisher = self.create_publisher(DiagnosticArray, status_topic, 1)
-        rate_hz = float(self.get_parameter("status_rate_hz").value)
-        if rate_hz <= 0:
-            raise ValueError("status_rate_hz must be > 0")
-        self._timer = self.create_timer(1.0 / rate_hz, self._publish_status)
+        self._implementation_status = "SKELETON_ONLY"
+        self._camera_contract = CAMERA_CONTRACT_NOT_RUN
         self.get_logger().warning(
             "SKELETON_ONLY: no camera subscriptions, inference, object output or control; "
-            "V1 offline CLI is separate"
+            "use mode:=v1_ros for DEV webcam/Image detection"
         )
+
+    def _init_v1_ros(self) -> None:
+        raw = self._param_map()
+        # Force documented contract label for this stage.
+        if not str(raw.get("camera_contract", "")).strip() or str(
+            raw.get("camera_contract")
+        ) == CAMERA_CONTRACT_NOT_RUN:
+            raw["camera_contract"] = "DEV_WEBCAM_ONLY / NOT_ZED"
+        if not raw.get("detector_enabled"):
+            raw["detector_enabled"] = True
+        if raw.get("backend") in ("", "unconfigured"):
+            raw["backend"] = "onnxruntime_cpu"
+        cfg = vision_config_from_mapping(raw)
+
+        try:
+            from vision_perception_interfaces.msg import VisionDetectionArray
+        except ImportError as exc:
+            raise RuntimeError(
+                "vision_perception_interfaces is required for v1_ros detections publish"
+            ) from exc
+
+        detections_topic = cfg.detections_topic
+        self._detections_pub = self.create_publisher(
+            VisionDetectionArray, detections_topic, 10
+        )
+        self._engine = DetectionEngine.from_config(cfg)
+        min_interval = 1.0 / float(cfg.inference_rate_hz)
+        self._worker = LatestFrameWorker(
+            self._process_pending_frame,
+            min_interval_sec=min_interval,
+        )
+        self._worker.start()
+        self._image_sub = self.create_subscription(
+            Image, cfg.rgb_topic, self._on_image, 10
+        )
+        self._implementation_status = "V1_ROS_DEV_WEBCAM"
+        self._camera_contract = str(cfg.camera_contract)
+        self._inference_active = True
+        self._camera_subscriptions_active = True
+        self.get_logger().warning(
+            f"v1_ros DEV_WEBCAM_ONLY / NOT_ZED: subscribing {cfg.rgb_topic}, "
+            f"publishing {detections_topic}; no depth/objects/cmd_vel/ZED SDK"
+        )
+
+    def _on_image(self, msg: Image) -> None:
+        self._frames_received += 1
+        if self._worker is None:
+            return
+        # Decode off the worker to keep invalid encodings out of the queue early.
+        try:
+            decoded = decode_sensor_image_msg(msg)
+        except Exception as exc:  # noqa: BLE001
+            self.get_logger().error(f"image decode failed: {exc}")
+            return
+        self._worker.submit(decoded)
+
+    def _process_pending_frame(self, decoded: Any) -> None:
+        if self._engine is None or self._detections_pub is None:
+            return
+        batch = self._engine.process_rgb_array(
+            decoded.rgb,
+            frame_id=decoded.header.frame_id,
+            stamp_sec=decoded.header.stamp_sec,
+            stamp_nanosec=decoded.header.stamp_nanosec,
+            source_kind="LIVE_CAMERA",
+        )
+        self._last_observation_id = int(batch.key.observation_id)
+        message = try_build_vision_detection_array_msg(batch)
+        self._detections_pub.publish(message)
 
     def _publish_status(self):
         message = DiagnosticArray()
         message.header.stamp = self.get_clock().now().to_msg()
         status = DiagnosticStatus()
-        status.name = "dg/vision/scaffold"
-        status.level = DiagnosticStatus.WARN
-        status.message = "SKELETON_ONLY"
+        status.name = "dg/vision/node"
+        if self._mode == "skeleton":
+            status.level = DiagnosticStatus.WARN
+            status.message = "SKELETON_ONLY"
+        else:
+            status.level = DiagnosticStatus.OK
+            status.message = "V1_ROS_DEV_WEBCAM"
+        dropped = self._worker.dropped if self._worker is not None else 0
+        processed = self._worker.processed if self._worker is not None else 0
+        last_error = self._worker.last_error if self._worker is not None else ""
         fields = {
-            "mode": "skeleton",
-            "implementation_status": "V1_OFFLINE_CODE_PRESENT_ROS_CAMERA_NOT_ENABLED",
-            "camera_subscriptions_active": "false",
-            "camera_contract": "NOT_RUN",
-            "inference_active": "false",
+            "mode": self._mode,
+            "implementation_status": self._implementation_status,
+            "camera_subscriptions_active": str(self._camera_subscriptions_active).lower(),
+            "camera_contract": self._camera_contract,
+            "inference_active": str(self._inference_active).lower(),
             "tracking_active": "false",
             "object_output_active": "false",
             "control_output_active": "false",
             "arm_ready": "NO",
             "v1_detections_interface": "VisionDetectionArray",
             "v2_objects_interface": "VisionObjectArray",
+            "frames_received": str(self._frames_received),
+            "frames_processed": str(processed),
+            "frames_dropped": str(dropped),
+            "last_observation_id": str(self._last_observation_id),
+            "last_worker_error": last_error or "",
+            "rgb_topic": str(self.get_parameter("rgb_topic").value),
         }
         status.values = [KeyValue(key=key, value=value) for key, value in fields.items()]
         message.status = [status]
         self._status_publisher.publish(message)
 
+    def destroy_node(self):
+        if self._worker is not None:
+            self._worker.stop()
+            self._worker = None
+        super().destroy_node()
+
 
 def main(args=None):
-    """Run the status-only shell; unsupported configuration exits non-zero."""
+    """Run skeleton or v1_ros; unsupported configuration exits non-zero."""
     rclpy.init(args=args)
     node = None
     exit_code = 0
@@ -113,8 +270,7 @@ def main(args=None):
         rclpy.spin(node)
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
-    except ValueError as exc:
-        # Ensure launch/run do not keep a silent skeleton process on bad mode.
+    except (ValueError, RuntimeError) as exc:
         print(f"[vision_perception_node] FATAL: {exc}", file=sys.stderr)
         exit_code = 1
     finally:

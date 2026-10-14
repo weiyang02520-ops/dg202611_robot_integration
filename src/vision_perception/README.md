@@ -6,45 +6,90 @@ Independent manipulation-vision ROS2 package (arm-independent).
 
 | Path | Status |
 |---|---|
-| ROS `vision_perception_node` (mode=`skeleton`) | Publishes only `/dg/vision/status` (`SKELETON_ONLY`). No image subscriptions, no `/objects`, no control. |
-| V1 offline CLI `vision_offline_detect` | File-based bottle/cup 2D detection when a **local** ONNX + `model_manifest.json` are supplied. No auto-download. |
-| Live camera ROS detection (V1-C) | Not enabled. `camera_contract=NOT_RUN`. |
-| V2 depth position / V3 tracking | Not implemented. `ARM_READY=NO`. |
+| ROS `mode:=skeleton` (default) | `/dg/vision/status` only (`SKELETON_ONLY`). No image sub, no inference, no detections. |
+| ROS `mode:=v1_ros` (explicit) | Subscribe `sensor_msgs/Image` on configurable `rgb_topic`, run ONNX bottle/cup detector, publish `VisionDetectionArray` on `/dg/vision/detections_2d` + status. |
+| Optional `vision_webcam_publisher` | V4L2/OpenCV → Image. Started only with `use_webcam:=true`. |
+| Optional `vision_fake_image_publisher` | Synthetic/file RGB for no-camera smoke tests (`use_fake_image:=true`). |
+| Offline CLI `vision_offline_detect` | File → JSON/CSV. No ROS camera claim. |
+| Legacy `mode:=v1` | **Rejected** (non-zero exit). |
+| ZED / production camera contract | **Not authorized here.** `camera_contract=DEV_WEBCAM_ONLY / NOT_ZED` for v1_ros. |
+| V2 depth / V3 tracking / arm | Not implemented. `ARM_READY=NO`. |
 
-Interface package `vision_perception_interfaces` (V4 contract):
-
-- V1: `VisionDetection2D` / `VisionDetectionArray` on `/dg/vision/detections_2d` (ROS publish path not enabled in skeleton).
-- V2/V3: extended `VisionObject` / `VisionObjectArray` on `/dg/vision/objects` (not published yet).
-
-Design and acceptance criteria:
-
-- `../../docs/dg202611/VISION_INTEGRATION_PLAN.md` (V4)
-- `../../docs/dg202611/VISION_MODULE.md`
-- `../../evidence/vision/README.md`
-
-## Linux ROS2 build / skeleton run (owner Humble VM)
+## Build (Humble)
 
 ```bash
 source /opt/ros/humble/setup.bash
 colcon build --symlink-install --packages-select vision_perception_interfaces vision_perception
 source install/setup.bash
-ros2 interface show vision_perception_interfaces/msg/VisionDetectionArray
+```
+
+## Skeleton (default — safe)
+
+```bash
 ros2 launch vision_perception vision.launch.py
-# Rejection checks (must fail startup with non-zero exit; must NOT stay in SKELETON_ONLY):
+# Must still reject:
 ros2 launch vision_perception vision.launch.py mode:=v1
 ros2 run vision_perception vision_perception_node --ros-args -p mode:=v1
 ```
 
-## Offline unit tests (no ROS / no camera)
+## V1 ROS + front webcam (DEV_WEBCAM_ONLY / NOT_ZED)
+
+Requires a **local** ONNX + `model_manifest.json` (not in git). Example:
+
+```bash
+# List devices (on the Humble machine)
+ls -l /dev/video*
+
+# Front webcam index is often 0; adjust video_device if needed.
+ros2 launch vision_perception vision.launch.py \
+  mode:=v1_ros \
+  use_webcam:=true \
+  video_device:=0 \
+  rgb_topic:=/dg/vision/webcam/image_raw \
+  model_path:=/ABS/PATH/yolo11n-seg.onnx \
+  model_manifest_path:=/ABS/PATH/model_manifest.json \
+  camera_contract:="DEV_WEBCAM_ONLY / NOT_ZED"
+```
+
+Watch topics:
+
+```bash
+ros2 topic echo /dg/vision/status --once
+ros2 topic echo /dg/vision/detections_2d --once
+ros2 topic hz /dg/vision/detections_2d
+```
+
+### No webcam on Ubuntu103 — fake Image or external topic
+
+```bash
+# Synthetic RGB (no /dev/video required)
+ros2 launch vision_perception vision.launch.py \
+  mode:=v1_ros \
+  use_fake_image:=true \
+  rgb_topic:=/dg/vision/webcam/image_raw \
+  model_path:=/ABS/PATH/yolo11n-seg.onnx \
+  model_manifest_path:=/ABS/PATH/model_manifest.json
+
+# Or publish your own Image (usb_cam / v4l2_camera / rosbag) and point rgb_topic at it:
+ros2 launch vision_perception vision.launch.py \
+  mode:=v1_ros \
+  use_webcam:=false \
+  rgb_topic:=/camera/image_raw \
+  model_path:=/ABS/PATH/yolo11n-seg.onnx \
+  model_manifest_path:=/ABS/PATH/model_manifest.json
+```
+
+Do **not** set `use_webcam:=true` and `use_fake_image:=true` together.
+
+## Unit tests (no ROS / no camera)
 
 ```bash
 PYTHONPATH=src/vision_perception python3 -m pytest src/vision_perception/test -q
 ```
 
-## Offline detection CLI (requires local model; not committed)
+## Offline file CLI
 
 ```bash
-# After colcon build + source install/setup.bash on Humble:
 ros2 run vision_perception vision_offline_detect -- \
   --images /path/to/img.npy \
   --model /path/to/yolo11n-seg.onnx \
@@ -53,6 +98,8 @@ ros2 run vision_perception vision_offline_detect -- \
   --out-csv /tmp/detections.csv
 ```
 
-Manifest shape example: `config/model_manifest.example.json`. Model weights (`.onnx`/`.pt`) are gitignored and must not be committed.
+Manifest example: `config/model_manifest.example.json`. Weights are gitignored.
 
-No TensorRT/CUDA, ZED SDK, arm, cmd_vel or production bringup dependency is required by the skeleton or the offline unit tests.
+## Boundaries
+
+No MODEL-1/2/3, Nav2/AMCL/SLAM, EKF/TF, cmd_vel, chassis, production bringup, `ylhb_*`, or ZED SDK changes. This package does not publish `/dg/vision/objects` in v1_ros.
