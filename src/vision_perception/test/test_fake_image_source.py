@@ -45,3 +45,5 @@ def test_launch_declares_fake_image_path():
     assert "use_fake_depth" in text
     assert "enable_objects" in text
     assert "vision_fake_depth_publisher" in text
+    assert "stamp_source_topic" in text
+    assert 'rgb_topic": ""' in text or "rgb_topic\": \"\"" in text

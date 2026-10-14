@@ -4,7 +4,8 @@ skeleton: status only — no camera, no inference, no detections.
 v1_ros: subscribe sensor_msgs/Image, run DetectionEngine, publish
         VisionDetectionArray on /dg/vision/detections_2d + status.
 Optional enable_objects:=true (default false): subscribe depth + CameraInfo,
-        pair ≤ sync_tolerance_sec, publish VisionObjectArray on /dg/vision/objects.
+        wait up to sync_wait_sec then pair ≤ sync_tolerance_sec, publish
+        VisionObjectArray on /dg/vision/objects.
 Optional debug_image (default off, ≤2 Hz). mode:=v1 (legacy) remains rejected.
 camera_contract for v1_ros: DEV_WEBCAM_ONLY / NOT_ZED. ARM_READY=NO.
 Does not start ZED SDK or publish grasp / cmd_vel.
@@ -37,7 +38,7 @@ from vision_perception.depth_io import (
     camera_calibration_from_info_msg,
     decode_depth_msg,
 )
-from vision_perception.frame_pairing import DepthFrameBuffer
+from vision_perception.frame_pairing import DepthFrameBuffer, RgbDepthSyncGate, SyncedPair
 from vision_perception.frame_worker import LatestFrameWorker
 from vision_perception.message_mapping import (
     try_build_vision_detection_array_msg,
@@ -109,6 +110,7 @@ class VisionPerceptionNode(Node):
             "input_stale_sec": 1.0,
             "output_frame_policy": "input_optical_header",
             "sync_tolerance_sec": 0.010,
+            "sync_wait_sec": 0.100,
             "min_depth_m": 0.5,
             "max_depth_m": 1.5,
             "inference_rate_hz": 5.0,
@@ -165,6 +167,8 @@ class VisionPerceptionNode(Node):
         self._inference_active = False
         self._camera_subscriptions_active = False
         self._depth_buffer: Optional[DepthFrameBuffer] = None
+        self._sync_gate: Optional[RgbDepthSyncGate[DecodedImage]] = None
+        self._sync_poll_timer = None
         self._calib_lock = threading.Lock()
         self._calibration: Optional[CameraCalibration] = None
         self._camera_info_received = False
@@ -215,6 +219,7 @@ class VisionPerceptionNode(Node):
             "status_rate_hz",
             "output_frame_policy",
             "sync_tolerance_sec",
+            "sync_wait_sec",
             "min_depth_m",
             "max_depth_m",
             "video_device",
@@ -301,15 +306,26 @@ class VisionPerceptionNode(Node):
                 tolerance_sec=float(cfg.sync_tolerance_sec),
                 max_size=10,
             )
+            self._sync_gate = RgbDepthSyncGate(
+                self._depth_buffer,
+                sync_wait_sec=float(cfg.sync_wait_sec),
+            )
             self._depth_sub = self.create_subscription(
                 Image, cfg.depth_topic, self._on_depth, 10
             )
             self._info_sub = self.create_subscription(
                 CameraInfo, cfg.camera_info_topic, self._on_camera_info, 10
             )
+            # Poll awaiting RGB timeouts without blocking the executor.
+            poll_hz = 50.0
+            self._sync_poll_timer = self.create_timer(
+                1.0 / poll_hz, self._poll_sync_gate
+            )
             self.get_logger().warning(
                 f"V2 enable_objects: depth={cfg.depth_topic}, "
                 f"camera_info={cfg.camera_info_topic}, "
+                f"sync_wait_sec={cfg.sync_wait_sec}, "
+                f"sync_tolerance_sec={cfg.sync_tolerance_sec}, "
                 f"publish {objects_topic}; unpaired/missing calib → "
                 "position_valid=false (no forged 3D); ARM_READY=NO; "
                 "orientation_valid=false; no tracking/grasp"
@@ -355,7 +371,7 @@ class VisionPerceptionNode(Node):
         )
 
     def _on_depth(self, msg: Image) -> None:
-        if self._depth_buffer is None:
+        if self._sync_gate is None:
             return
         try:
             frame = decode_depth_msg(msg)
@@ -363,7 +379,9 @@ class VisionPerceptionNode(Node):
             self.get_logger().error(f"depth decode failed: {exc}")
             return
         self._depth_frames_received += 1
-        self._depth_buffer.push(frame)
+        synced = self._sync_gate.on_depth(frame)
+        if synced is not None:
+            self._submit_synced(synced)
 
     def _on_camera_info(self, msg: CameraInfo) -> None:
         try:
@@ -378,6 +396,8 @@ class VisionPerceptionNode(Node):
                 # (RGB session stays; 3D stays invalid until consistent again).
                 if self._depth_buffer is not None:
                     self._depth_buffer.clear()
+                if self._sync_gate is not None:
+                    self._sync_gate.clear()
                 self.get_logger().warning(
                     "CameraInfo calibration_id changed; depth buffer cleared"
                 )
@@ -387,6 +407,34 @@ class VisionPerceptionNode(Node):
     def _snapshot_calibration(self) -> Optional[CameraCalibration]:
         with self._calib_lock:
             return self._calibration
+
+    def _submit_synced(self, synced: SyncedPair[DecodedImage]) -> None:
+        if self._worker is None:
+            return
+        depth = synced.depth
+        pair_reason = synced.pair_reason
+        pair_skew = synced.pair_skew_sec
+        calib = self._snapshot_calibration()
+        if pair_reason == "OK" and calib is None:
+            # Paired depth but no CameraInfo yet — do not forge XYZ.
+            pair_reason = "DEPTH_UNPAIRED"
+            depth = None
+        self._worker.submit(
+            PendingRgbJob(
+                decoded=synced.payload,
+                depth=depth,
+                pair_skew_sec=pair_skew,
+                pair_reason=pair_reason,
+                calibration=calib,
+            )
+        )
+
+    def _poll_sync_gate(self) -> None:
+        if self._sync_gate is None:
+            return
+        synced = self._sync_gate.poll(time.monotonic())
+        if synced is not None:
+            self._submit_synced(synced)
 
     def _on_image(self, msg: Image) -> None:
         self._frames_received += 1
@@ -401,30 +449,25 @@ class VisionPerceptionNode(Node):
             self.get_logger().error(f"image decode failed: {exc}")
             return
 
-        depth: Optional[DepthFrame] = None
-        pair_skew: Optional[float] = None
-        pair_reason = "DEPTH_UNPAIRED"
-        calib: Optional[CameraCalibration] = None
-        if self._enable_objects and self._depth_buffer is not None:
-            # Fix depth+calib snapshot before inference (plan §7.1).
-            pair = self._depth_buffer.pair_for_rgb(
-                decoded.header.stamp_sec, decoded.header.stamp_nanosec
+        if self._enable_objects and self._sync_gate is not None:
+            # Hold RGB until matching depth arrives (or sync_wait_sec timeout).
+            synced = self._sync_gate.on_rgb(
+                decoded,
+                stamp_sec=decoded.header.stamp_sec,
+                stamp_nanosec=decoded.header.stamp_nanosec,
+                now_mono=time.monotonic(),
             )
-            depth = pair.depth
-            pair_skew = pair.skew_sec
-            pair_reason = pair.reason
-            calib = self._snapshot_calibration()
-            if calib is None:
-                pair_reason = "DEPTH_UNPAIRED"
-                depth = None
+            if synced is not None:
+                self._submit_synced(synced)
+            return
 
         self._worker.submit(
             PendingRgbJob(
                 decoded=decoded,
-                depth=depth,
-                pair_skew_sec=pair_skew,
-                pair_reason=pair_reason,
-                calibration=calib,
+                depth=None,
+                pair_skew_sec=None,
+                pair_reason="DEPTH_UNPAIRED",
+                calibration=None,
             )
         )
 
@@ -583,6 +626,11 @@ class VisionPerceptionNode(Node):
         self._status_publisher.publish(message)
 
     def destroy_node(self):
+        if self._sync_poll_timer is not None:
+            self._sync_poll_timer.cancel()
+            self._sync_poll_timer = None
+        if self._sync_gate is not None:
+            self._sync_gate.clear()
         if self._worker is not None:
             self._worker.clear_pending()
             self._worker.stop()

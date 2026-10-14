@@ -34,6 +34,10 @@ def _launch_setup(context, *args, **kwargs):
         if camera_info_topic == "/zed/zed_node/rgb/color/rect/camera_info":
             camera_info_topic = "/dg/vision/fake/camera_info"
 
+    # Stamp sync for V2 smoke: fake_depth timer is master; fake_image copies
+    # depth stamps so RGB is published only after depth+CameraInfo for that stamp.
+    fake_image_stamp_source = depth_topic if use_fake_depth_on else ""
+
     nodes = [
         Node(
             package="vision_perception",
@@ -47,6 +51,23 @@ def _launch_setup(context, *args, **kwargs):
                 "frame_id": "webcam_optical_frame",
             }],
         ),
+        # Start depth stamp-master before RGB so the first ticks have depth ready.
+        Node(
+            package="vision_perception",
+            executable="vision_fake_depth_publisher",
+            name="vision_fake_depth_publisher",
+            output="screen",
+            condition=IfCondition(LaunchConfiguration("use_fake_depth")),
+            parameters=[{
+                # Empty rgb_topic → timer stamp master (not RGB-driven mirror).
+                "rgb_topic": "",
+                "frame_rate_hz": 5.0,
+                "depth_topic": depth_topic,
+                "camera_info_topic": camera_info_topic,
+                "frame_id": "fake_webcam_optical_frame",
+                "constant_depth_m": LaunchConfiguration("fake_depth_m"),
+            }],
+        ),
         Node(
             package="vision_perception",
             executable="vision_fake_image_publisher",
@@ -58,20 +79,7 @@ def _launch_setup(context, *args, **kwargs):
                 "frame_id": "fake_webcam_optical_frame",
                 "image_path": LaunchConfiguration("fake_image_path"),
                 "fake_image_path": LaunchConfiguration("fake_image_path"),
-            }],
-        ),
-        Node(
-            package="vision_perception",
-            executable="vision_fake_depth_publisher",
-            name="vision_fake_depth_publisher",
-            output="screen",
-            condition=IfCondition(LaunchConfiguration("use_fake_depth")),
-            parameters=[{
-                "rgb_topic": LaunchConfiguration("rgb_topic"),
-                "depth_topic": depth_topic,
-                "camera_info_topic": camera_info_topic,
-                "frame_id": "fake_webcam_optical_frame",
-                "constant_depth_m": LaunchConfiguration("fake_depth_m"),
+                "stamp_source_topic": fake_image_stamp_source,
             }],
         ),
         Node(

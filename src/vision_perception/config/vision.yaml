@@ -37,6 +37,7 @@ vision_perception_node:
     # V4 plan defaults. Depth/sync used only when enable_objects:=true.
     output_frame_policy: input_optical_header
     sync_tolerance_sec: 0.010
+    sync_wait_sec: 0.100  # hold RGB until matching depth or timeout
     min_depth_m: 0.5
     max_depth_m: 1.5
     inference_rate_hz: 5.0

@@ -1,7 +1,12 @@
 """Publish synthetic depth + CameraInfo for offline V2 smoke (no ZED SDK).
 
-Mirrors RGB stamps when ``rgb_topic`` is set so pairing (≤10 ms) succeeds.
-Default topics are under ``/dg/vision/fake/`` — never touches ZED launch/config.
+Default smoke mode (launch ``use_fake_depth``): **timer is the stamp master**.
+Publishes depth + CameraInfo with a shared ``now()`` stamp; fake_image should
+set ``stamp_source_topic`` to this depth topic so RGB copies the same stamp
+*after* depth/info are out (pairing succeeds).
+
+Optional ``rgb_topic`` mirror mode remains for experiments; prefer timer+mirror
+RGB for the default smoke path (avoids vision seeing RGB before depth).
 """
 
 from __future__ import annotations
@@ -25,7 +30,8 @@ class FakeDepthPublisherNode(Node):
         super().__init__("vision_fake_depth_publisher")
         self.declare_parameter("depth_topic", "/dg/vision/fake/depth")
         self.declare_parameter("camera_info_topic", "/dg/vision/fake/camera_info")
-        self.declare_parameter("rgb_topic", "/dg/vision/webcam/image_raw")
+        # Empty = do not mirror RGB (timer master). Non-empty = copy RGB stamps.
+        self.declare_parameter("rgb_topic", "")
         self.declare_parameter("frame_id", "fake_webcam_optical_frame")
         self.declare_parameter("width", 640)
         self.declare_parameter("height", 480)
@@ -34,7 +40,7 @@ class FakeDepthPublisherNode(Node):
         self.declare_parameter("fy", 500.0)
         self.declare_parameter("cx", 320.0)
         self.declare_parameter("cy", 240.0)
-        self.declare_parameter("frame_rate_hz", 0.0)  # 0 = RGB-driven only
+        self.declare_parameter("frame_rate_hz", 5.0)
 
         self._depth_topic = str(self.get_parameter("depth_topic").value)
         self._info_topic = str(self.get_parameter("camera_info_topic").value)
@@ -78,20 +84,36 @@ class FakeDepthPublisherNode(Node):
             self.get_logger().warning(
                 f"DEV fake depth mirrors stamps from {rgb_topic} → "
                 f"{self._depth_topic} + {self._info_topic} "
-                f"(constant {self._depth_m} m, NOT_ZED, no SDK)"
+                f"(constant {self._depth_m} m). Prefer timer master + "
+                "fake_image stamp_source_topic for default smoke."
             )
         if rate > 0:
             self._timer = self.create_timer(1.0 / rate, self._on_timer)
             self.get_logger().warning(
-                f"DEV fake depth also timer-publishing at {rate} Hz "
-                f"(stamps = now; prefer rgb_topic mirror for pairing)"
+                f"DEV fake depth stamp-master timer {rate} Hz → "
+                f"{self._depth_topic} + {self._info_topic} "
+                f"(constant {self._depth_m} m, NOT_ZED, no SDK)"
             )
         if self._rgb_sub is None and self._timer is None:
             raise ValueError(
-                "fake depth needs rgb_topic (preferred) and/or frame_rate_hz > 0"
+                "fake depth needs frame_rate_hz > 0 (stamp master) "
+                "and/or rgb_topic (mirror mode)"
             )
 
     def _publish(self, stamp, frame_id: str) -> None:
+        # Publish CameraInfo then depth so calib is cached before depth pairing.
+        info = CameraInfo()
+        info.header.stamp = stamp
+        info.header.frame_id = frame_id or self._frame_id
+        info.width = self._calib.width
+        info.height = self._calib.height
+        info.k = list(self._calib.k)
+        info.d = list(self._calib.d)
+        info.r = list(self._calib.r)
+        info.p = list(self._calib.p)
+        info.distortion_model = "plumb_bob"
+        self._info_pub.publish(info)
+
         fields = encode_depth_32fc1_fields(
             self._depth_plane,
             frame_id=frame_id or self._frame_id,
@@ -109,20 +131,7 @@ class FakeDepthPublisherNode(Node):
         depth_msg.data = fields["data"]
         self._depth_pub.publish(depth_msg)
 
-        info = CameraInfo()
-        info.header.stamp = stamp
-        info.header.frame_id = frame_id or self._frame_id
-        info.width = self._calib.width
-        info.height = self._calib.height
-        info.k = list(self._calib.k)
-        info.d = list(self._calib.d)
-        info.r = list(self._calib.r)
-        info.p = list(self._calib.p)
-        info.distortion_model = "plumb_bob"
-        self._info_pub.publish(info)
-
     def _on_rgb(self, msg: Image) -> None:
-        # Resize plane if RGB size differs (common with custom fake photos).
         h, w = int(msg.height), int(msg.width)
         if (h, w) != (self._height, self._width):
             self._height, self._width = h, w

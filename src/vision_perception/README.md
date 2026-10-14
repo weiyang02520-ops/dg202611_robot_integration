@@ -311,10 +311,16 @@ ros2 launch vision_perception vision.launch.py \
   camera_contract:="DEV_WEBCAM_ONLY / NOT_ZED"
 ```
 
-`use_fake_depth:=true` starts `vision_fake_depth_publisher`, which mirrors RGB
-stamps onto `/dg/vision/fake/depth` (32FC1 metres) and
-`/dg/vision/fake/camera_info`, and remaps the node’s `depth_topic` /
-`camera_info_topic` away from the ZED defaults when those were left unchanged.
+`use_fake_depth:=true` starts `vision_fake_depth_publisher` as the **stamp
+master** (5 Hz timer): CameraInfo then 32FC1 depth on
+`/dg/vision/fake/{camera_info,depth}` with a shared `now()` stamp. With
+`use_fake_image:=true`, the fake RGB node sets
+`stamp_source_topic:=/dg/vision/fake/depth` and republishes RGB with that same
+stamp *after* depth/info — so pairing is not racing two independent timers
+(earlier bug: skew ≈ 0.20 s → `DEPTH_UNPAIRED`).
+
+The vision node also holds RGB up to `sync_wait_sec` (default 0.100) for a
+matching depth (plan §7.1), which covers residual delivery reordering.
 
 Watch:
 
@@ -324,10 +330,12 @@ ros2 topic echo /dg/vision/detections_2d --once
 ros2 topic echo /dg/vision/objects --once
 ```
 
-Expect `object_output_active=true`, `arm_ready=NO`, every object
-`orientation_valid=false` / `tracking_valid=false`. With constant fake depth and
-a large enough bbox after erode, `position_valid` may be true (synthetic only —
-not a ZED accuracy PASS). Missing depth/info → `DEPTH_UNPAIRED` or status
+Expect `object_output_active=true`, `arm_ready=NO`, `last_pair_reason=OK` when
+depth+info are flowing (even if `detections=[]` / `objects=[]` — paired empty
+scene, not `DEPTH_UNPAIRED`). Every object: `orientation_valid=false` /
+`tracking_valid=false`. With constant fake depth and a large enough bbox after
+erode, `position_valid` may be true (synthetic only — not a ZED accuracy PASS).
+Missing depth/info after `sync_wait_sec` → `DEPTH_UNPAIRED` or status
 `V2_OBJECTS_NO_CALIBRATION`, never invented XYZ.
 
 Configured input names (YAML / launch; subscribe only, no ZED start):
@@ -337,6 +345,7 @@ Configured input names (YAML / launch; subscribe only, no ZED start):
 | `depth_topic` | `/zed/zed_node/depth/depth_registered` (fake remap → `/dg/vision/fake/depth`) |
 | `camera_info_topic` | `/zed/zed_node/rgb/color/rect/camera_info` (fake → `/dg/vision/fake/camera_info`) |
 | `sync_tolerance_sec` | `0.010` |
+| `sync_wait_sec` | `0.100` |
 | `min_depth_m` / `max_depth_m` | `0.5` / `1.5` |
 
 ## Unit tests (no ROS / no camera)

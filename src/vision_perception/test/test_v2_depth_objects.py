@@ -14,7 +14,7 @@ from vision_perception.depth_io import (
     encode_depth_32fc1_fields,
     project_optical_xyz,
 )
-from vision_perception.frame_pairing import DepthFrameBuffer
+from vision_perception.frame_pairing import DepthFrameBuffer, RgbDepthSyncGate
 from vision_perception.message_mapping import (
     VISION_OBJECT_ARRAY_DICT_FIELDS,
     VISION_OBJECT_DICT_FIELDS,
@@ -146,6 +146,102 @@ def test_depth_pairing_rejects_beyond_tolerance():
     assert bad.depth is None
     # Depth not consumed when unpaired.
     assert len(buf) == 1
+
+
+def _depth_at(sec: int, nsec: int) -> object:
+    return decode_depth_image(
+        np.ones((2, 2), dtype=np.float32).tobytes(),
+        height=2,
+        width=2,
+        encoding="32FC1",
+        stamp_sec=sec,
+        stamp_nanosec=nsec,
+    )
+
+
+def test_sync_gate_rgb_then_matching_depth_pairs_ok():
+    """Ubuntu103 race: RGB arrives before stamp-mirrored depth (~0.2s skew)."""
+    buf = DepthFrameBuffer(tolerance_sec=0.010, max_size=10)
+    gate = RgbDepthSyncGate(buf, sync_wait_sec=0.100)
+    # Immediate pair fails (empty buffer) → await.
+    assert gate.on_rgb("rgb-A", stamp_sec=5, stamp_nanosec=0, now_mono=1.0) is None
+    assert gate.has_awaiting is True
+    # Matching depth arrives within wait window.
+    ready = gate.on_depth(_depth_at(5, 0))
+    assert ready is not None
+    assert ready.pair_reason == "OK"
+    assert ready.payload == "rgb-A"
+    assert ready.depth is not None
+    assert ready.pair_skew_sec == 0.0
+    assert gate.has_awaiting is False
+
+
+def test_sync_gate_depth_first_then_rgb_immediate_ok():
+    buf = DepthFrameBuffer(tolerance_sec=0.010, max_size=10)
+    gate = RgbDepthSyncGate(buf, sync_wait_sec=0.100)
+    assert gate.on_depth(_depth_at(7, 0)) is None
+    ready = gate.on_rgb("rgb-B", stamp_sec=7, stamp_nanosec=0, now_mono=2.0)
+    assert ready is not None
+    assert ready.pair_reason == "OK"
+    assert ready.payload == "rgb-B"
+
+
+def test_sync_gate_timeout_unpaired_keeps_skew_from_stale_depth():
+    buf = DepthFrameBuffer(tolerance_sec=0.010, max_size=10)
+    gate = RgbDepthSyncGate(buf, sync_wait_sec=0.100)
+    buf.push(_depth_at(1, 0))  # 200 ms earlier than RGB below
+    assert gate.on_rgb("rgb-C", stamp_sec=1, stamp_nanosec=200_000_000, now_mono=10.0) is None
+    assert gate.poll(10.05) is None  # still waiting
+    timed = gate.poll(10.11)
+    assert timed is not None
+    assert timed.pair_reason == "DEPTH_UNPAIRED"
+    assert timed.depth is None
+    assert timed.pair_skew_sec is not None
+    assert timed.pair_skew_sec > 0.01
+
+
+def test_paired_empty_detections_keep_ok_not_unpaired():
+    """No 2D targets → empty objects with pair_reason OK (not DEPTH_UNPAIRED)."""
+    h, w = 480, 640
+    depth_m = np.full((h, w), 1.0, dtype=np.float32)
+    depth = decode_depth_image(
+        depth_m.tobytes(),
+        height=h,
+        width=w,
+        encoding="32FC1",
+        stamp_sec=10,
+        stamp_nanosec=0,
+    )
+    calib = camera_calibration_from_pinhole(
+        width=w, height=h, fx=500.0, fy=500.0, cx=320.0, cy=240.0
+    )
+    empty = DetectionBatch(
+        key=FrameKey(
+            source_session_id="s",
+            observation_id=9,
+            source_kind="LIVE_CAMERA",
+            calibration_id=calib.calibration_id,
+            frame_id="f",
+            source_stamp_sec=10,
+            source_stamp_nanosec=0,
+        ),
+        detections=(),
+        image_width=w,
+        image_height=h,
+    )
+    objects = build_object_batch(
+        empty,
+        depth=depth,
+        calibration=calib,
+        pair_skew_sec=0.0,
+        pair_reason="OK",
+    )
+    assert objects.depth_paired is True
+    assert objects.pair_reason == "OK"
+    assert objects.objects == ()
+    payload = object_batch_to_dict(objects)
+    assert payload["objects"] == []
+    assert payload["arm_ready"] == "NO"
 
 
 def test_surface_sample_valid_constant_depth():

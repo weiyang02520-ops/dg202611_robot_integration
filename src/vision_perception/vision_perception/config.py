@@ -53,6 +53,8 @@ class VisionConfig:
     status_rate_hz: float = 1.0
     output_frame_policy: str = "input_optical_header"
     sync_tolerance_sec: float = 0.010
+    # Plan §7.1: wait for depth after RGB before declaring DEPTH_UNPAIRED.
+    sync_wait_sec: float = 0.100
     min_depth_m: float = 0.5
     max_depth_m: float = 1.5
     video_device: int = 0
@@ -172,6 +174,7 @@ def vision_config_from_mapping(raw: Mapping[str, Any] | None = None) -> VisionCo
         sync_tolerance_sec=float(
             data.get("sync_tolerance_sec", DEFAULTS.sync_tolerance_sec)
         ),
+        sync_wait_sec=float(data.get("sync_wait_sec", DEFAULTS.sync_wait_sec)),
         min_depth_m=float(data.get("min_depth_m", DEFAULTS.min_depth_m)),
         max_depth_m=float(data.get("max_depth_m", DEFAULTS.max_depth_m)),
         video_device=int(data.get("video_device", DEFAULTS.video_device)),
@@ -221,6 +224,8 @@ def validate_vision_config(cfg: VisionConfig) -> None:
         raise ValueError("depth range must satisfy 0 < min_depth_m < max_depth_m")
     if cfg.sync_tolerance_sec <= 0:
         raise ValueError("sync_tolerance_sec must be > 0")
+    if cfg.sync_wait_sec < 0:
+        raise ValueError("sync_wait_sec must be >= 0")
     # V3 tracking is not authorized.
     if cfg.enable_tracking or cfg.tracking_enabled:
         raise ValueError(

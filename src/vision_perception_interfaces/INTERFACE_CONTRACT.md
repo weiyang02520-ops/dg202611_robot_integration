@@ -29,6 +29,8 @@
   - depth: `/zed/zed_node/depth/depth_registered`
   - camera_info: `/zed/zed_node/rgb/color/rect/camera_info`
   - Fake smoke: `/dg/vision/fake/depth` + `/dg/vision/fake/camera_info` via `use_fake_depth:=true`.
+    Depth timer is stamp master; fake RGB copies depth stamps (`stamp_source_topic`).
+    Node waits up to `sync_wait_sec` (default 0.100) for a match (`sync_tolerance_sec` 0.010).
 
 ## V1 evidence shells
 
