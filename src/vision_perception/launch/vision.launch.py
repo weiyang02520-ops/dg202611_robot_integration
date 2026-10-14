@@ -1,4 +1,4 @@
-"""Vision launch: default skeleton; optional v1_ros + local webcam Image source.
+"""Vision launch: default skeleton; optional v1_ros + local webcam/fake Image.
 
 mode:=v1 remains unsupported (node rejects). ZED is not started here.
 camera_contract for v1_ros is DEV_WEBCAM_ONLY / NOT_ZED.
@@ -33,7 +33,16 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "use_fake_image",
             default_value="false",
-            description="If true, publish synthetic RGB (no camera hardware).",
+            description="If true, publish synthetic/file RGB (no camera hardware).",
+        ),
+        DeclareLaunchArgument(
+            "fake_image_path",
+            default_value="",
+            description=(
+                "Optional local RGB file for fake publisher "
+                "(.jpg/.png/.npy). Real bottle/cup photo recommended for "
+                "non-empty detections."
+            ),
         ),
         DeclareLaunchArgument("video_device", default_value="0"),
         DeclareLaunchArgument(
@@ -67,6 +76,8 @@ def generate_launch_description():
             parameters=[{
                 "image_topic": LaunchConfiguration("rgb_topic"),
                 "frame_id": "fake_webcam_optical_frame",
+                "image_path": LaunchConfiguration("fake_image_path"),
+                "fake_image_path": LaunchConfiguration("fake_image_path"),
             }],
         ),
         Node(

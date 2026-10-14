@@ -1,18 +1,23 @@
 """Publish synthetic or file-backed RGB images for no-camera smoke tests.
 
 Not a ZED source. Useful on Ubuntu103 when /dev/video* is missing.
+
+Parameters:
+  image_path / npy_path / fake_image_path: optional local RGB file
+    (.jpg/.jpeg/.png via OpenCV, or HxWx3 .npy). Prefer a real bottle/cup
+    photo for non-empty detections; solid-colour defaults often yield [].
 """
 
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 
-import numpy as np
 import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from sensor_msgs.msg import Image
+
+from vision_perception.fake_image_source import load_fake_rgb, resolve_fake_image_path
 
 
 class FakeImagePublisherNode(Node):
@@ -23,6 +28,9 @@ class FakeImagePublisherNode(Node):
         self.declare_parameter("frame_rate_hz", 5.0)
         self.declare_parameter("width", 640)
         self.declare_parameter("height", 480)
+        # Aliases: image_path (preferred), fake_image_path (launch), npy_path (legacy).
+        self.declare_parameter("image_path", "")
+        self.declare_parameter("fake_image_path", "")
         self.declare_parameter("npy_path", "")
 
         topic = str(self.get_parameter("image_topic").value)
@@ -31,22 +39,25 @@ class FakeImagePublisherNode(Node):
             raise ValueError("frame_rate_hz must be > 0")
         self._frame_id = str(self.get_parameter("frame_id").value)
 
-        npy_path = str(self.get_parameter("npy_path").value).strip()
-        if npy_path:
-            array = np.load(npy_path)
-            if array.ndim != 3 or array.shape[2] != 3:
-                raise ValueError(f"npy_path must be HxWx3 RGB, got {array.shape}")
-            self._rgb = np.ascontiguousarray(array, dtype=np.uint8)
-            self.get_logger().info(f"fake image from {Path(npy_path).name}")
-        else:
-            width = int(self.get_parameter("width").value)
-            height = int(self.get_parameter("height").value)
-            self._rgb = np.zeros((height, width, 3), dtype=np.uint8)
-            # Visible colour blocks so subscribers can confirm data flow.
-            self._rgb[:, : width // 2, 0] = 200
-            self._rgb[:, width // 2 :, 2] = 200
+        path = resolve_fake_image_path(
+            str(self.get_parameter("image_path").value),
+            str(self.get_parameter("fake_image_path").value),
+            str(self.get_parameter("npy_path").value),
+        )
+        self._rgb, note = load_fake_rgb(
+            path,
+            width=int(self.get_parameter("width").value),
+            height=int(self.get_parameter("height").value),
+        )
+        if path:
             self.get_logger().warning(
-                "DEV fake RGB publisher (no camera file); not a ZED source"
+                f"DEV fake RGB from {note} (NOT_ZED). "
+                "Use a real bottle/cup photo for non-empty detections."
+            )
+        else:
+            self.get_logger().warning(
+                "DEV fake RGB colour blocks (NOT_ZED); detections often []. "
+                "Pass fake_image_path:=/ABS/bottle.jpg for non-empty smoke."
             )
 
         self._pub = self.create_publisher(Image, topic, 10)

@@ -154,6 +154,58 @@ ros2 launch vision_perception vision.launch.py mode:=v1
 ros2 run vision_perception vision_perception_node --ros-args -p mode:=v1
 ```
 
+## Ubuntu103 shortest smoke (fake image + local ONNX)
+
+Default remains **skeleton** (safe). Explicit `mode:=v1_ros` only.
+
+**PATH note:** after `pip install --user ...`, `~/.local/bin` can shadow Humble
+`ros2` with a broken/partial install. Prefer:
+
+```bash
+source /opt/ros/humble/setup.bash
+source /path/to/ws/install/setup.bash
+hash -r
+type -a ros2
+# first hit should be /opt/ros/humble/bin/ros2 (or the underlay), NOT a stale ~/.local copy
+# If ~/.local wins:  export PATH="/opt/ros/humble/bin:$PATH"  and hash -r again
+```
+
+### A) Colour-block / format sample (detections often `[]` — still healthy)
+
+```bash
+SHARE=$(ros2 pkg prefix vision_perception)/share/vision_perception
+ros2 launch vision_perception vision.launch.py \
+  mode:=v1_ros \
+  use_fake_image:=true \
+  fake_image_path:=$SHARE/examples/smoke_rgb_hint.npy \
+  model_path:=/home/weiyang/vision_models/yolo11n-seg.onnx \
+  model_manifest_path:=/home/weiyang/vision_models/model_manifest.json \
+  camera_contract:="DEV_WEBCAM_ONLY / NOT_ZED"
+```
+
+### B) Non-empty detections — feed a real bottle/cup photo
+
+```bash
+# Put any local JPG/PNG of a bottle or cup on disk, then:
+ros2 launch vision_perception vision.launch.py \
+  mode:=v1_ros \
+  use_fake_image:=true \
+  fake_image_path:=/home/weiyang/Pictures/bottle_or_cup.jpg \
+  model_path:=/home/weiyang/vision_models/yolo11n-seg.onnx \
+  model_manifest_path:=/home/weiyang/vision_models/model_manifest.json \
+  camera_contract:="DEV_WEBCAM_ONLY / NOT_ZED"
+
+ros2 topic echo /dg/vision/status --once
+ros2 topic echo /dg/vision/detections_2d --once
+```
+
+Expect status `V1_ROS_DEV_WEBCAM` with `empty_detections_healthy=true`. With a clear
+bottle/cup photo, `detections_2d` should sometimes be non-empty. Solid colour
+blocks / `smoke_rgb_hint.npy` often stay `[]` (valid smoke).
+
+Node aliases for the file: launch `fake_image_path`, or node params `image_path` /
+legacy `npy_path`.
+
 ## Shortest webcam trial (Ubuntu / WSL2 + `/dev/video*`)
 
 WSL2 needs USB camera attached to WSL (`usbipd` on Windows) so that `ls /dev/video*` works inside the Linux distro that runs Humble. Native Ubuntu: built-in laptop camera is usually `/dev/video0` (index `0`).
@@ -196,25 +248,9 @@ ros2 topic hz /dg/vision/detections_2d
 
 If `use_webcam:=true` but no device: webcam publisher FATALS with “Failed to open V4L2/OpenCV device”.
 
-### No `/dev/video` (e.g. Ubuntu103) — fake Image smoke
+### No `/dev/video` — see “Ubuntu103 shortest smoke” above
 
-Owner-verified path (models under `/home/weiyang/vision_models/`):
-
-```bash
-ros2 launch vision_perception vision.launch.py \
-  mode:=v1_ros \
-  use_fake_image:=true \
-  rgb_topic:=/dg/vision/webcam/image_raw \
-  model_path:=$HOME/vision_models/yolo11n-seg.onnx \
-  model_manifest_path:=$HOME/vision_models/model_manifest.json \
-  camera_contract:="DEV_WEBCAM_ONLY / NOT_ZED"
-```
-
-Expect:
-
-- `/dg/vision/status` → `message=V1_ROS_DEV_WEBCAM`, level OK; fields include `empty_detections_healthy=true`
-- `/dg/vision/detections_2d` ~ few Hz; solid-color fake frames often have `detections=[]` — **that is healthy**, not a fault
-- Do **not** combine `use_webcam:=true` and `use_fake_image:=true`
+Do **not** combine `use_webcam:=true` and `use_fake_image:=true`.
 
 ## Unit tests (no ROS / no camera)
 

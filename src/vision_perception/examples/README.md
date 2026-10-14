@@ -1,18 +1,40 @@
-# Vision examples (templates only)
-
-This directory holds **JSON templates only**. It does **not** contain ONNX/PT
-weights and must not be used to auto-download models.
+# Vision examples (no model weights)
 
 | File | Purpose |
 |---|---|
 | `model_manifest.template.json` | Fill SHA256 / license after a local YOLO11n-seg ONNX export |
+| `smoke_rgb_hint.npy` | Tiny HxWx3 RGB format sample (crude blobs; YOLO often returns `[]`) |
+| `make_smoke_rgb_npy.py` | Regenerate `smoke_rgb_hint.npy` |
 
-Copy the template next to your local ONNX (outside the repo or under a
-gitignored path), fill hashes, then pass absolute paths to launch:
+Copy the manifest template next to your local ONNX (outside git), fill hashes:
 
 ```bash
 model_path:=/home/YOU/vision_models/yolo11n-seg.onnx
 model_manifest_path:=/home/YOU/vision_models/model_manifest.json
 ```
 
-See `../README.md` § “Local ONNX + manifest” for export steps and webcam trial commands.
+## Fake-image RGB source (`use_fake_image:=true`)
+
+Launch argument: `fake_image_path:=/ABS/PATH` (aliases inside the node:
+`image_path`, legacy `npy_path`).
+
+Supported files: `.jpg` / `.jpeg` / `.png` (needs OpenCV), or HxWx3 `.npy`.
+
+```bash
+# Format-only sample (detections often empty — still a valid smoke):
+SHARE=$(ros2 pkg prefix vision_perception)/share/vision_perception
+ros2 launch vision_perception vision.launch.py \
+  mode:=v1_ros use_fake_image:=true \
+  fake_image_path:=$SHARE/examples/smoke_rgb_hint.npy \
+  model_path:=$HOME/vision_models/yolo11n-seg.onnx \
+  model_manifest_path:=$HOME/vision_models/model_manifest.json
+
+# Non-empty detections: feed a real bottle/cup photo
+ros2 launch vision_perception vision.launch.py \
+  mode:=v1_ros use_fake_image:=true \
+  fake_image_path:=/home/YOU/Pictures/bottle_on_desk.jpg \
+  model_path:=$HOME/vision_models/yolo11n-seg.onnx \
+  model_manifest_path:=$HOME/vision_models/model_manifest.json
+```
+
+See package `README.md` for the Ubuntu103 shortest smoke commands.
