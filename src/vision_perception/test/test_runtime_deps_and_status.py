@@ -79,12 +79,18 @@ def test_empty_detections_keep_ok_status():
         last_observation_id=30,
         last_detection_count=0,
         last_worker_error="",
+        source_session_id="sess-ok",
+        backend="onnxruntime_cpu",
+        last_input_age_sec=0.1,
     )
     assert level == LEVEL_OK == b"\x00"
     assert isinstance(level, bytes) and len(level) == 1
     assert message == "V1_ROS_DEV_WEBCAM"
     assert fields["last_detection_count"] == "0"
     assert fields["empty_detections_healthy"] == "true"
+    assert fields["source_session_id"] == "sess-ok"
+    assert fields["backend"] == "onnxruntime_cpu"
+    assert fields["arm_ready"] == "NO"
     assert empty_detections_are_healthy(0, "") is True
 
 

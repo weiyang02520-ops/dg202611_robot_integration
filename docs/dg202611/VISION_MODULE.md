@@ -1,15 +1,17 @@
 # Independent Manipulation Vision Module
 
-Date: 2026-10-14. Implementation status: V1_OFFLINE + V1_ROS_DEV_WEBCAM (optional) + SKELETON default.
+Date: 2026-10-14. Implementation status: V1 offline-completable code on
+`cursor/vision-v1-offline-1fcf` (PR #1). Default remains SKELETON; real-camera /
+bottle-cup photo smoke is **NOT_RUN** until Ubuntu103 owner run.
 
 ## Purpose and placement
 
-`src/vision_perception` is an independent `ament_python` package for bottle/cup
-detection, future depth-qualified positions and temporal tracking.
-`src/vision_perception_interfaces` defines the arm-independent observation
-contract per `VISION_INTEGRATION_PLAN.md` **V4**. No arm code is present or
-required. Neither package depends on navigation/fusion/recovery modules or the
-legacy inspection detector.
+`src/vision_perception` is an independent hybrid ament_cmake + ament_cmake_python
+package for bottle/cup detection, future depth-qualified positions and temporal
+tracking. `src/vision_perception_interfaces` defines the arm-independent
+observation contract per `VISION_INTEGRATION_PLAN.md` **V4**. No arm code is
+present or required. Neither package depends on navigation/fusion/recovery
+modules or the legacy inspection detector.
 
 `ARM_READY=NO`. ZED production camera contract is **not** claimed in this stage.
 `camera_contract` for explicit `mode:=v1_ros`: **`DEV_WEBCAM_ONLY / NOT_ZED`**.
@@ -32,13 +34,17 @@ does **not** auto-download models and weights must not be committed.
 
 - Subscribes to configurable `rgb_topic` (`sensor_msgs/Image`).
 - Runs YOLO11n-seg-compatible preprocess/ONNX/postprocess (boxes for bottle/cup).
-- Publishes `VisionDetectionArray` on `/dg/vision/detections_2d` + status.
+- Publishes `VisionDetectionArray` on `/dg/vision/detections_2d` + status
+  (`source_session_id`, `backend`, STALE when input age &gt; `input_stale_sec`).
+- Optional `publish_debug_image:=true` → `/dg/vision/debug_image` ≤2 Hz (default off).
 - Does **not** publish `/dg/vision/objects`, depth, tracking, TF, or cmd_vel.
+- `orientation_valid` remains false in V2-shaped placeholders.
 
 Optional launch helpers:
 
 - `use_webcam:=true` → `vision_webcam_publisher` (V4L2/OpenCV, e.g. laptop camera).
-- `use_fake_image:=true` → synthetic RGB when `/dev/video*` is missing.
+- `use_fake_image:=true` + `fake_image_path:=/ABS/...` → file/synthetic RGB.
+- `publish_debug_image:=true` → annotated overlay (no GUI).
 
 ### Model contract (owner-prepared artifacts)
 
@@ -65,6 +71,7 @@ Missing `model_path` / manifest on `mode:=v1_ros` → FATAL non-zero exit (by de
 ### V1 offline detection path
 
 File CLI `vision_offline_detect` → JSON/CSV with `source_kind=OFFLINE_FILE`.
+Format sample: `examples/golden_format_batch.json` (not a real ONNX golden).
 
 ## Public contract (V4)
 
@@ -73,22 +80,21 @@ File CLI `vision_offline_detect` → JSON/CSV with `source_kind=OFFLINE_FILE`.
 | `/dg/vision/detections_2d` | `VisionDetectionArray` | V1 offline + v1_ros |
 | `/dg/vision/objects` | `VisionObjectArray` | V2/V3 (not published) |
 | `/dg/vision/status` | `DiagnosticArray` | scaffold onward |
+| `/dg/vision/debug_image` | `sensor_msgs/Image` | V1 optional, default off |
 | `/dg/vision/webcam/image_raw` | `sensor_msgs/Image` | optional DEV webcam / fake |
 
-## Webcam / WSL trial (shortest)
+## 未做项（NOT_RUN）
 
-Ubuntu or WSL2 (camera visible as `/dev/video*`):
+- Real-time camera acceptance / bottle-cup photo non-empty detection smoke
+- Navigation, chassis, `cmd_vel`, MODEL bringup
+- ZED RGB-D contract and depth pairing (V2)
+- `/objects`, tracking (V2/V3)
+- True ONNX golden comparison against committed weights (weights stay out of git)
 
-```bash
-ros2 launch vision_perception vision.launch.py \
-  mode:=v1_ros use_webcam:=true video_device:=0 \
-  model_path:=$HOME/vision_models/yolo11n-seg.onnx \
-  model_manifest_path:=$HOME/vision_models/model_manifest.json \
-  camera_contract:="DEV_WEBCAM_ONLY / NOT_ZED"
-```
+## Webcam / WSL / fake-image trial (shortest)
 
-Without model paths → expect FATAL mentioning `model_path` / manifest hint.
-Without `/dev/video*` → use `use_fake_image:=true` instead of webcam.
+See `src/vision_perception/README.md` § Ubuntu103. Prefer Humble `ros2` over a
+stale `~/.local/bin/ros2`. Do not combine `use_webcam` and `use_fake_image`.
 
 ### Runtime pins
 
@@ -104,12 +110,13 @@ frames keeps status OK (`V1_ROS_DEV_WEBCAM` / `empty_detections_healthy=true`).
 install, `source install/setup.bash && ros2 pkg prefix vision_perception`
 must work without hand-exporting `AMENT_PREFIX_PATH`. Regression script:
 `src/vision_perception/scripts/check_ament_prefix_hook.sh`.
+Scripts under `scripts/` are forced LF via `.gitattributes`.
 
 ## Verification
 
 - Unit tests: `PYTHONPATH=src/vision_perception python3 -m pytest src/vision_perception/test -q`
 - Ubuntu103 (owner): build OK, skeleton OK, `mode:=v1` reject, fake-image smoke with
-  local ONNX (~3–4 Hz detections, often empty), status `V1_ROS_DEV_WEBCAM`; watch NumPy&lt;2.
+  local ONNX + optional real bottle/cup JPG; watch NumPy&lt;2.
 - Cloud agent: no ROS/camera PASS claims.
 
 ## Existing-module boundary

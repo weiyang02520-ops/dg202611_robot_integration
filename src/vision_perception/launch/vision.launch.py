@@ -12,6 +12,7 @@ from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
@@ -55,6 +56,14 @@ def generate_launch_description():
             "camera_contract",
             default_value="DEV_WEBCAM_ONLY / NOT_ZED",
         ),
+        DeclareLaunchArgument(
+            "publish_debug_image",
+            default_value="false",
+            description=(
+                "If true, publish annotated rgb8 on /dg/vision/debug_image "
+                "(≤2 Hz). Default off; no GUI."
+            ),
+        ),
         Node(
             package="vision_perception",
             executable="vision_webcam_publisher",
@@ -93,6 +102,9 @@ def generate_launch_description():
                     "model_path": LaunchConfiguration("model_path"),
                     "model_manifest_path": LaunchConfiguration("model_manifest_path"),
                     "camera_contract": LaunchConfiguration("camera_contract"),
+                    "publish_debug_image": ParameterValue(
+                        LaunchConfiguration("publish_debug_image"), value_type=bool
+                    ),
                 },
             ],
         ),

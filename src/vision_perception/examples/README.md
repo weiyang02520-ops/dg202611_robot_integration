@@ -5,6 +5,7 @@
 | `model_manifest.template.json` | Fill SHA256 / license after a local YOLO11n-seg ONNX export |
 | `smoke_rgb_hint.npy` | Tiny HxWx3 RGB format sample (crude blobs; YOLO often returns `[]`) |
 | `make_smoke_rgb_npy.py` | Regenerate `smoke_rgb_hint.npy` |
+| `golden_format_batch.json` | Offline JSON **format** sample (empty + one bottle); not a real ONNX golden |
 
 Copy the manifest template next to your local ONNX (outside git), fill hashes:
 
@@ -37,4 +38,10 @@ ros2 launch vision_perception vision.launch.py \
   model_manifest_path:=$HOME/vision_models/model_manifest.json
 ```
 
-See package `README.md` for the Ubuntu103 shortest smoke commands.
+Optional overlay (default off):
+
+```bash
+publish_debug_image:=true   # /dg/vision/debug_image ≤2 Hz; no GUI
+```
+
+See package `README.md` for Ubuntu103 shortest smoke commands and **未做项 (NOT_RUN)**.

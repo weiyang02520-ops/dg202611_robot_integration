@@ -62,6 +62,17 @@ class LatestFrameWorker:
             self._pending = item
             self._event.set()
 
+    def clear_pending(self) -> int:
+        """Drop any waiting frame (STALE / shutdown). Returns how many were cleared."""
+        with self._lock:
+            if self._pending is None:
+                self._event.clear()
+                return 0
+            self._pending = None
+            self._dropped += 1
+            self._event.clear()
+            return 1
+
     def _take(self) -> Optional[Any]:
         with self._lock:
             item = self._pending

@@ -39,6 +39,8 @@ def test_launch_declares_and_forwards_mode_and_webcam_args():
     assert '"mode": LaunchConfiguration("mode")' in text
     assert "use_webcam" in text
     assert "use_fake_image" in text
+    assert "publish_debug_image" in text
+    assert "ParameterValue" in text
     assert "vision_webcam_publisher" in text
     assert "default_value=\"skeleton\"" in text or "default_value='skeleton'" in text
 

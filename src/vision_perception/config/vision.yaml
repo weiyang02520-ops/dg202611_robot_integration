@@ -7,6 +7,9 @@ vision_perception_node:
     detector_enabled: false
     tracking_enabled: false
     publish_debug_image: false
+    debug_image_topic: /dg/vision/debug_image
+    debug_image_max_hz: 2.0
+    input_stale_sec: 1.0
     backend: unconfigured
     model_path: ""
     model_manifest_path: ""

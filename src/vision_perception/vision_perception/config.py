@@ -26,6 +26,9 @@ class VisionConfig:
     detector_enabled: bool = False
     tracking_enabled: bool = False
     publish_debug_image: bool = False
+    debug_image_topic: str = "/dg/vision/debug_image"
+    debug_image_max_hz: float = 2.0
+    input_stale_sec: float = 1.0
     status_topic: str = "/dg/vision/status"
     detections_topic: str = "/dg/vision/detections_2d"
     objects_topic: str = "/dg/vision/objects"
@@ -82,12 +85,17 @@ def require_ros_skeleton_mode(mode: Any) -> str:
     return normalized
 
 
-def _as_bool(value: Any) -> bool:
+def as_bool(value: Any) -> bool:
+    """Coerce ROS/YAML/launch stringy bools; ``\"false\"`` is False."""
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "yes", "on"}
     return bool(value)
+
+
+# Backward-compatible private alias.
+_as_bool = as_bool
 
 
 def _as_tuple_str(value: Any) -> Tuple[str, ...]:
@@ -111,6 +119,13 @@ def vision_config_from_mapping(raw: Mapping[str, Any] | None = None) -> VisionCo
         publish_debug_image=_as_bool(
             data.get("publish_debug_image", DEFAULTS.publish_debug_image)
         ),
+        debug_image_topic=str(
+            data.get("debug_image_topic", DEFAULTS.debug_image_topic)
+        ),
+        debug_image_max_hz=float(
+            data.get("debug_image_max_hz", DEFAULTS.debug_image_max_hz)
+        ),
+        input_stale_sec=float(data.get("input_stale_sec", DEFAULTS.input_stale_sec)),
         status_topic=str(data.get("status_topic", DEFAULTS.status_topic)),
         detections_topic=str(data.get("detections_topic", DEFAULTS.detections_topic)),
         objects_topic=str(data.get("objects_topic", DEFAULTS.objects_topic)),
@@ -157,8 +172,14 @@ def validate_vision_config(cfg: VisionConfig) -> None:
         raise ValueError("detections_topic must remain within /dg/vision/")
     if not cfg.objects_topic.startswith("/dg/vision/"):
         raise ValueError("objects_topic must remain within /dg/vision/")
+    if not cfg.debug_image_topic.startswith("/dg/vision/"):
+        raise ValueError("debug_image_topic must remain within /dg/vision/")
     if cfg.inference_rate_hz <= 0:
         raise ValueError("inference_rate_hz must be > 0")
+    if cfg.debug_image_max_hz <= 0 or cfg.debug_image_max_hz > 2.0:
+        raise ValueError("debug_image_max_hz must be in (0, 2]")
+    if cfg.input_stale_sec <= 0:
+        raise ValueError("input_stale_sec must be > 0")
     if cfg.pending_frames != 1:
         raise ValueError("pending_frames must be 1 in V1")
     if cfg.ort_threads < 1:

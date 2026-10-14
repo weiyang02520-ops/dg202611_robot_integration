@@ -7,13 +7,24 @@ Independent manipulation-vision ROS2 package (arm-independent).
 | Path | Status |
 |---|---|
 | ROS `mode:=skeleton` (default) | `/dg/vision/status` only (`SKELETON_ONLY`). No image sub, no inference, no detections. |
-| ROS `mode:=v1_ros` (explicit) | Subscribe `sensor_msgs/Image` on configurable `rgb_topic`, run ONNX bottle/cup detector, publish `VisionDetectionArray` on `/dg/vision/detections_2d` + status. |
+| ROS `mode:=v1_ros` (explicit) | Subscribe `sensor_msgs/Image` on configurable `rgb_topic`, run ONNX bottle/cup detector, publish `VisionDetectionArray` on `/dg/vision/detections_2d` + status (`source_session_id` / `backend` / STALE). |
+| Optional `publish_debug_image:=true` | Annotated `sensor_msgs/Image` on `/dg/vision/debug_image` (≤2 Hz). **Default off.** |
 | Optional `vision_webcam_publisher` | V4L2/OpenCV → Image. Started only with `use_webcam:=true`. |
 | Optional `vision_fake_image_publisher` | Synthetic/file RGB for no-camera smoke tests (`use_fake_image:=true`). |
 | Offline CLI `vision_offline_detect` | File → JSON/CSV. No ROS camera claim. |
 | Legacy `mode:=v1` | **Rejected** (non-zero exit). |
 | ZED / production camera contract | **Not authorized here.** `camera_contract=DEV_WEBCAM_ONLY / NOT_ZED` for v1_ros. |
-| V2 depth / V3 tracking / arm | Not implemented. `ARM_READY=NO`. |
+| V2 depth / V3 tracking / arm | Not implemented. Does **not** publish `/dg/vision/objects`. `ARM_READY=NO`. `orientation_valid` stays false in V2 stubs. |
+
+### 未做项（NOT_RUN — 勿记 PASS）
+
+| Item | Why blocked |
+|---|---|
+| 实时相机 / 瓶杯图冒烟验收 | Needs Ubuntu103 + local ONNX + real bottle/cup photo or `/dev/video*` |
+| 导航 / 底盘 / `cmd_vel` / MODEL bringup | Out of scope; must not change |
+| ZED RGB-D 契约与配对 | V2; not authorized in this PR |
+| V2 `/objects` 深度选点、V3 跟踪 | Later stages |
+| 真 ONNX 黄金样例比对 | Weights stay out of git; synthetic postprocess goldens cover format only |
 
 **Hard rules:** the node never auto-downloads weights; `.onnx` / `.pt` must stay out of git (see root `.gitignore`). License of upstream YOLO/COCO weights is separate from this repo — review before use; do not publish or redistribute weights until cleared.
 
@@ -252,6 +263,18 @@ If `use_webcam:=true` but no device: webcam publisher FATALS with “Failed to o
 
 Do **not** combine `use_webcam:=true` and `use_fake_image:=true`.
 
+### Optional debug image (default off)
+
+```bash
+ros2 launch vision_perception vision.launch.py \
+  mode:=v1_ros use_fake_image:=true \
+  fake_image_path:=$SHARE/examples/smoke_rgb_hint.npy \
+  model_path:=$HOME/vision_models/yolo11n-seg.onnx \
+  model_manifest_path:=$HOME/vision_models/model_manifest.json \
+  publish_debug_image:=true
+# → /dg/vision/debug_image at ≤2 Hz when frames are processed
+```
+
 ## Unit tests (no ROS / no camera)
 
 ```bash
@@ -272,3 +295,27 @@ ros2 run vision_perception vision_offline_detect -- \
 ## Boundaries
 
 No MODEL-1/2/3, Nav2/AMCL/SLAM, EKF/TF, cmd_vel, chassis, production bringup, `ylhb_*`, or ZED SDK changes. This package does not publish `/dg/vision/objects` in v1_ros.
+
+## Ubuntu103 sync (same PR branch)
+
+```bash
+cd /path/to/ws/src/<this-repo>
+git fetch origin cursor/vision-v1-offline-1fcf
+git checkout cursor/vision-v1-offline-1fcf
+git pull --ff-only origin cursor/vision-v1-offline-1fcf
+
+source /opt/ros/humble/setup.bash
+# Prefer Humble ros2 over a broken ~/.local/bin/ros2:
+export PATH="/opt/ros/humble/bin:$PATH"; hash -r
+
+rm -rf build/vision_perception build/vision_perception_interfaces \
+       install/vision_perception install/vision_perception_interfaces
+colcon build --symlink-install --packages-select \
+  vision_perception_interfaces vision_perception
+source install/setup.bash
+
+python3 -m pip install --user -r src/vision_perception/requirements-runtime.txt
+PYTHONPATH=src/vision_perception python3 -m pytest src/vision_perception/test -q
+
+# Then fake-image or webcam smoke with local ONNX (NOT_RUN until you have weights + photo)
+```
