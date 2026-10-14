@@ -349,12 +349,15 @@ bash src/vision_perception/scripts/bootstrap_isolated_ws.sh --build
 #   bash src/vision_perception/scripts/bootstrap_isolated_ws.sh --pytest-only
 ```
 
-The bootstrap script: restores `+x`, checks package-local LF attributes, optionally
-builds, runs pytest, and prints fake-image smoke commands (NOT_RUN without ONNX).
+The bootstrap script: restores `+x`, checks package-local LF / evidence templates
+(no monorepo `evidence/` needed), optionally builds (CMake `install(CODE)` chmod
+for libexec), runs pytest, and prints fake-image smoke commands (NOT_RUN without
+ONNX). `enable_objects` / `enable_tracking` remain false.
 
 **You should not need a manual `chmod +x scripts/vision_*` after a normal colcon
-install** — CMake post-install `chmod` covers it. If launch still says “Permission
-denied” / not executable, re-run `ensure_scripts_executable.sh` (zip edge cases).
+install** — CMake post-install `chmod` (bracket-arg `install(CODE)`) covers it.
+If launch still says “Permission denied” / not executable, re-run
+`ensure_scripts_executable.sh` (zip edge cases).
 
 ## Offline V1 evaluation (no ROS)
 

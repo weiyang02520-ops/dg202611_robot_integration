@@ -94,6 +94,10 @@ def test_interface_contract_doc_exists_and_forbids_v1_objects_publish():
     assert "orientation_valid" in text
     assert "ARM_READY" in text
     assert "V1 must not publish" in text
+    assert "enable_objects:=false" in text
+    assert "enable_tracking:=false" in text
+    assert "vision_perception/evidence/templates" in text
+    assert (IFACE / "README.md").is_file()
 
 
 def test_placeholder_object_shape_and_orientation_always_false():

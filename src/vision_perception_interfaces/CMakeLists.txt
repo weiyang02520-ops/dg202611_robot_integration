@@ -17,6 +17,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 
 install(FILES
   INTERFACE_CONTRACT.md
+  README.md
   package.xml
   DESTINATION share/${PROJECT_NAME}
 )

@@ -19,6 +19,25 @@
 - V2: `object_id` and `tracking_session_id` empty; `tracking_valid=false`.
 - Consumers of legacy `/perception/localized_objects` are out of scope; this package does not replace them silently.
 
+## Runtime gates (vision_perception package)
+
+Until separately authorized, `vision_perception` keeps:
+
+- `enable_objects:=false` (true rejected at config validation)
+- `enable_tracking:=false` / `tracking_enabled:=false` (true rejected)
+
+Message types here are frozen only; enabling those flags does **not** implement
+depth pairing, `/objects` publish, or tracking.
+
+## V1 evidence shells
+
+Empty metadata templates ship inside `vision_perception` (not this interfaces
+package): `src/vision_perception/evidence/templates/` →
+`share/vision_perception/evidence/templates/`. Isolated two-package syncs do
+not need the monorepo `evidence/` tree.
+
 ## Consumers audit (this repo)
 
-No in-repo subscriber to `vision_perception_interfaces/VisionObject*` was found when this contract was finalized. If one appears before V2, pause and re-authorize interface changes.
+No in-repo subscriber to `vision_perception_interfaces/VisionObject*` was found
+when this contract was finalized. If one appears before V2, pause and
+re-authorize interface changes.

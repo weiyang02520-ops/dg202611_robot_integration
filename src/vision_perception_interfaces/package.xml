@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <package format="3">
   <name>vision_perception_interfaces</name>
-  <version>0.1.1</version>
+  <version>0.1.2</version>
   <description>
     Arm-independent vision observation contracts (plan section 3):
     VisionDetection2D/Array for V1; VisionObject/Array frozen for future V2/V3.

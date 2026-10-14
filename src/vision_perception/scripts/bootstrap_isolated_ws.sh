@@ -85,6 +85,12 @@ source_ros_setup() {
   set -u
 }
 
+# Evidence templates are package-local (no monorepo evidence/ tree required).
+# Checked before --pytest-only so isolated sync fails fast if templates missing.
+test -f src/vision_perception/evidence/templates/V1_ROS/metadata.json.template
+test -f src/vision_perception/evidence/templates/V1_OFFLINE/metadata.json.template
+echo "OK: package-local V1 evidence templates present"
+
 # 3) Prefer Humble ros2 over a broken ~/.local/bin/ros2
 if [[ -f /opt/ros/humble/setup.bash ]]; then
   source_ros_setup /opt/ros/humble/setup.bash
@@ -106,10 +112,6 @@ if [[ "${DO_BUILD}" -eq 1 ]]; then
   bash src/vision_perception/scripts/ensure_scripts_executable.sh
   bash src/vision_perception/scripts/check_ament_prefix_hook.sh
 fi
-
-# Evidence templates are package-local (no monorepo evidence/ tree required).
-test -f src/vision_perception/evidence/templates/V1_ROS/metadata.json.template
-echo "OK: package-local V1 evidence templates present"
 
 PYTHONPATH=src/vision_perception python3 -m pytest src/vision_perception/test -q
 

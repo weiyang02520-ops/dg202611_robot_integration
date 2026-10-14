@@ -27,8 +27,8 @@ def test_package_gitattributes_forces_lf_for_scripts():
 def test_lf_policy_does_not_require_monorepo_root_gitattributes():
     """Isolated two-package sync has no repo-root .gitattributes; tests must not need it."""
     # Policy file under the package is enough; do not walk to the workspace root.
-    assert PACKAGE_ATTRS.is_relative_to(ROOT)
     assert PACKAGE_ATTRS == ROOT / ".gitattributes"
+    assert str(PACKAGE_ATTRS).startswith(str(ROOT))
     # No helper that points outside the package for attributes.
     assert not hasattr(test_package_gitattributes_forces_lf_for_scripts, "uses_repo_root")
 
