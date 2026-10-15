@@ -1,6 +1,6 @@
 # VISION_INTEGRATION_PLAN：独立操作视觉详细实施规格
 
-版本：V4，2026-10-14。状态：设计规格；尚未实现检测、深度定位或跟踪。
+版本：V4，2026-10-14。状态：设计规格仍有效；代码骨架已实现至 V3 门控壳（`enable_objects` / `enable_tracking` 默认 false；离线 detect/objects/track CLI；确定性贪心 IoU 关联，非匈牙利）。实机 ZED、表面真值精度、身份标注 IDF1、Jetson 性能仍为 NOT_RUN，不得记 PASS。
 
 ## 0. 当前授权与结论
 

@@ -20,6 +20,7 @@ LIBEXEC_WRAPPERS=(
   vision_perception_node
   vision_offline_detect
   vision_offline_objects
+  vision_offline_track
   vision_webcam_publisher
   vision_fake_image_publisher
   vision_fake_depth_publisher

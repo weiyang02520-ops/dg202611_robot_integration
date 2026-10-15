@@ -13,9 +13,10 @@ Independent manipulation-vision ROS2 package (arm-independent).
 | Optional `vision_fake_image_publisher` | Synthetic/file RGB for no-camera smoke tests (`use_fake_image:=true`). |
 | Optional `vision_fake_depth_publisher` | Constant 32FC1 depth + synthetic CameraInfo (`use_fake_depth:=true`). Mirrors RGB stamps. |
 | Optional `enable_objects:=true` (v1_ros only) | V2: pair depth+CameraInfo, publish `VisionObjectArray` on `/dg/vision/objects`. **Default false.** |
-| Optional `enable_tracking:=true` (v1_ros only) | V3: short-horizon per-class IoU tracker. **Default false.** Confirmed matches fill `object_id` / `tracking_valid` on objects. |
+| Optional `enable_tracking:=true` (v1_ros only) | V3: short-horizon per-class IoU tracker (**deterministic greedy**, not Hungarian). **Default false.** Confirmed matches fill `object_id` / `tracking_valid` on objects. |
 | Offline CLI `vision_offline_detect` | File → JSON/CSV. No ROS camera claim. |
 | Offline CLI `vision_offline_objects` | RGB + depth `.npy` + synthetic pinhole → objects JSON/CSV (coverage only). |
+| Offline CLI `vision_offline_track` | Detection-sequence JSON → tracks JSON/CSV + V3 scaffold metrics (`idf1=BLOCKED` without identity labels). |
 | V2 mask | YOLO-seg contour when `output1` present; else `bbox_fill` fallback. |
 | Legacy `mode:=v1` | **Rejected** (non-zero exit). |
 | ZED / production camera contract | **Not authorized here.** `camera_contract=DEV_WEBCAM_ONLY / NOT_ZED` for v1_ros. Node may *subscribe* to ZED topic names but never starts the SDK. |
@@ -397,6 +398,20 @@ ros2 run vision_perception vision_offline_objects -- \
 `--out-metrics` reports pair/position_valid **coverage** with
 `result=NOT_RUN` and `v2_accuracy=BLOCKED` (no independent surface truth →
 never mark accuracy PASS). `orientation_valid` stays false; `arm_ready=NO`.
+
+### Offline V3 track (detection-sequence JSON, no camera)
+
+```bash
+# Input: frames with stamp_sec + detections (bbox centre/size). No ONNX required.
+ros2 run vision_perception vision_offline_track -- \
+  --sequence examples/track_sequence.example.json \
+  --out-json /tmp/tracks.json \
+  --out-csv /tmp/tracks.csv \
+  --out-metrics /tmp/v3_scaffold.json
+```
+
+Matcher is **deterministic greedy per-class IoU** (not SciPy Hungarian).
+`--out-metrics` keeps `result=NOT_RUN` / `idf1=BLOCKED` without identity labels.
 
 ## Boundaries
 

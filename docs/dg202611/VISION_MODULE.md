@@ -41,11 +41,14 @@ does **not** auto-download models and weights must not be committed.
 - `enable_objects` / `enable_tracking` default **false**. Both `true` only with
   `mode:=v1_ros` (skeleton/offline reject).
   - `enable_objects:=true` → V2 depth pairing + `VisionObjectArray`.
-  - `enable_tracking:=true` → V3 per-class IoU tracker; confirmed matches fill
-    `object_id` / `tracking_valid`; STALE / calib change clears tracks.
+  - `enable_tracking:=true` → V3 per-class IoU tracker (**deterministic greedy**,
+    not Hungarian); confirmed matches fill `object_id` / `tracking_valid`;
+    STALE / calib change clears tracks.
 - V2 surface sample prefers YOLO-seg masks (`mask_source=yolo_seg`); falls back to
   `bbox_fill`. Offline CLI: `vision_offline_objects` (coverage metrics only;
   `v2_accuracy=BLOCKED` without surface truth).
+- Offline CLI: `vision_offline_track` (detection-sequence JSON → tracks CSV/JSON;
+  scaffold metrics only; `idf1=BLOCKED` without identity labels).
 - V3 eval scaffold: ID-switch / same-frame uniqueness checks; without identity
   labels `result=NOT_RUN`, `idf1=BLOCKED` (never invent PASS).
 - `orientation_valid` remains false; `ARM_READY=NO`.
@@ -57,7 +60,7 @@ does **not** auto-download models and weights must not be committed.
 | `image_io` / letterbox | pure | V1 |
 | `onnx_backend` / `postprocess` / `mask_decode` | pure | V1 |
 | `frame_pairing` / `surface_sample` | pure | V2 |
-| `tracker` | pure | V3 |
+| `tracker` / `offline_track` | pure | V3 |
 | `message_mapping` / `objects_pipeline` | pure | V1–V3 |
 | `vision_node` gates `enable_objects` / `enable_tracking` | ROS | V2 / V3 |
 
