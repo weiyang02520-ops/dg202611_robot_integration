@@ -66,7 +66,7 @@ class DetectionEngine:
     ) -> DetectionBatch:
         canvas, meta = letterbox_rgb(image_rgb, model_size=self.config.model_input_size)
         tensor = letterbox_to_nchw_float32(canvas)
-        output0, _output1 = run_onnx(self.session, tensor)
+        output0, output1 = run_onnx(self.session, tensor)
         class_id_to_name = self.session.manifest.class_id_to_name()
         detections = decode_yolo11_seg_boxes(
             output0=output0,
@@ -76,6 +76,8 @@ class DetectionEngine:
             nms_iou_threshold=self.config.nms_iou_threshold,
             max_detections=self.config.max_detections,
             allowed_classes=self.config.target_classes,
+            output1=output1,
+            mask_threshold=self.config.mask_threshold,
         )
         observation_id = self._next_observation_id
         self._next_observation_id += 1
@@ -155,6 +157,8 @@ def process_array_with_synthetic_output0(
     stamp_sec: int = 0,
     stamp_nanosec: int = 0,
     frame_id: str = "",
+    output1: Optional[np.ndarray] = None,
+    mask_threshold: float = 0.5,
 ) -> DetectionBatch:
     """Detection-path postprocess using a caller-provided model tensor (no ORT)."""
     _canvas, meta = letterbox_rgb(image_rgb, model_size=640)
@@ -166,6 +170,8 @@ def process_array_with_synthetic_output0(
         confidence_threshold=confidence_threshold,
         nms_iou_threshold=nms_iou_threshold,
         max_detections=max_detections,
+        output1=output1,
+        mask_threshold=mask_threshold,
     )
     key = FrameKey(
         source_session_id="synthetic-session",

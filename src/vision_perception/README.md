@@ -14,6 +14,8 @@ Independent manipulation-vision ROS2 package (arm-independent).
 | Optional `vision_fake_depth_publisher` | Constant 32FC1 depth + synthetic CameraInfo (`use_fake_depth:=true`). Mirrors RGB stamps. |
 | Optional `enable_objects:=true` (v1_ros only) | V2: pair depth+CameraInfo, publish `VisionObjectArray` on `/dg/vision/objects`. **Default false.** |
 | Offline CLI `vision_offline_detect` | File → JSON/CSV. No ROS camera claim. |
+| Offline CLI `vision_offline_objects` | RGB + depth `.npy` + synthetic pinhole → objects JSON/CSV (coverage only). |
+| V2 mask | YOLO-seg contour when `output1` present; else `bbox_fill` fallback. |
 | Legacy `mode:=v1` | **Rejected** (non-zero exit). |
 | ZED / production camera contract | **Not authorized here.** `camera_contract=DEV_WEBCAM_ONLY / NOT_ZED` for v1_ros. Node may *subscribe* to ZED topic names but never starts the SDK. |
 | V3 tracking / arm | **Not authorized.** `enable_tracking:=false` (true rejected). `ARM_READY=NO`. `orientation_valid` stays false through V3. |
@@ -29,8 +31,8 @@ Independent manipulation-vision ROS2 package (arm-independent).
 | V3 跟踪 | Needs separate auth; `enable_tracking` must stay false |
 | 真 ONNX 黄金样例比对 | Weights stay out of git; synthetic postprocess goldens cover format only |
 
-V1 evidence empty shells (package-local, works in isolated two-package sync):
-`src/vision_perception/evidence/templates/{V1_OFFLINE,V1_ROS}/`
+Evidence empty shells (package-local, works in isolated two-package sync):
+`src/vision_perception/evidence/templates/{V1_OFFLINE,V1_ROS,V2_POSITION}/`
 (also installed under `share/vision_perception/evidence/templates/`).
 
 **Hard rules:** the node never auto-downloads weights; `.onnx` / `.pt` must stay out of git (see root `.gitignore`). License of upstream YOLO/COCO weights is separate from this repo — review before use; do not publish or redistribute weights until cleared.
@@ -364,6 +366,25 @@ ros2 run vision_perception vision_offline_detect -- \
   --out-json /tmp/v1_offline.json \
   --out-csv /tmp/detections.csv
 ```
+
+### Offline V2 objects (synthetic / recorded depth `.npy`)
+
+```bash
+# depth.npy: HxW float32 metres, same size as the RGB image
+ros2 run vision_perception vision_offline_objects -- \
+  --images /path/to/img.npy \
+  --depths /path/to/depth.npy \
+  --model $HOME/vision_models/yolo11n-seg.onnx \
+  --manifest $HOME/vision_models/model_manifest.json \
+  --fx 500 --fy 500 \
+  --out-json /tmp/v2_objects.json \
+  --out-csv /tmp/objects.csv \
+  --out-metrics /tmp/v2_coverage.json
+```
+
+`--out-metrics` reports pair/position_valid **coverage** with
+`result=NOT_RUN` and `v2_accuracy=BLOCKED` (no independent surface truth →
+never mark accuracy PASS). `orientation_valid` stays false; `arm_ready=NO`.
 
 ## Boundaries
 

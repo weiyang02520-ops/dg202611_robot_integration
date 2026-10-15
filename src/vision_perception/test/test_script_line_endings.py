@@ -68,6 +68,7 @@ def test_ensure_scripts_executable_helper_exists():
     assert "chmod a+x" in text
     assert "vision_fake_image_publisher" in text
     assert "vision_fake_depth_publisher" in text
+    assert "vision_offline_objects" in text
 
 
 def test_bootstrap_isolated_ws_script_exists():

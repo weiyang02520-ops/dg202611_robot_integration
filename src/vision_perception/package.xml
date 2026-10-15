@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <package format="3">
   <name>vision_perception</name>
-  <version>0.1.8</version>
+  <version>0.1.9</version>
   <description>
     Independent manipulation-vision: skeleton, offline V1, optional v1_ros webcam,
     optional V2 objects when enable_objects is true. enable_tracking stays false.

@@ -42,6 +42,7 @@ install(FILES
 install(PROGRAMS
   scripts/vision_perception_node
   scripts/vision_offline_detect
+  scripts/vision_offline_objects
   scripts/vision_webcam_publisher
   scripts/vision_fake_image_publisher
   scripts/vision_fake_depth_publisher
@@ -60,6 +61,7 @@ install(CODE [[
   foreach(_name IN ITEMS
       vision_perception_node
       vision_offline_detect
+      vision_offline_objects
       vision_webcam_publisher
       vision_fake_image_publisher
       vision_fake_depth_publisher

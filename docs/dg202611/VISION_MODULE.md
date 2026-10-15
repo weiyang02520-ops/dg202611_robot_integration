@@ -41,6 +41,9 @@ does **not** auto-download models and weights must not be committed.
 - `enable_objects` / `enable_tracking` default **false**. `enable_objects:=true`
   (v1_ros only) runs V2 depth pairing and publishes `VisionObjectArray`.
   `enable_tracking:=true` remains rejected.
+- V2 surface sample prefers YOLO-seg masks (`mask_source=yolo_seg`); falls back to
+  `bbox_fill`. Offline CLI: `vision_offline_objects` (coverage metrics only;
+  `v2_accuracy=BLOCKED` without surface truth).
 - `orientation_valid` remains false; `ARM_READY=NO`.
 
 Optional launch helpers:

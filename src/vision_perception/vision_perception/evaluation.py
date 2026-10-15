@@ -269,3 +269,48 @@ def evaluate_offline_payload(
     annotations = load_annotations_file(annotations_path)
     cases = cases_from_offline_batches(batches, annotations)
     return evaluate_cases(cases, iou_threshold=iou_threshold)
+
+
+def summarize_v2_object_coverage(
+    object_batches: Sequence[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Functional V2 coverage from ObjectBatch dicts (plan §10.2 scaffolding).
+
+    Reports paired / position_valid rates only. Without independent surface-point
+    ground truth, ``v2_accuracy`` stays ``BLOCKED`` and ``result`` is ``NOT_RUN``.
+    Never invents a precision PASS from synthetic planes.
+    """
+    n_batches = 0
+    n_paired = 0
+    n_objects = 0
+    n_position_valid = 0
+    reasons: Dict[str, int] = {}
+    for batch in object_batches:
+        n_batches += 1
+        if batch.get("depth_paired") or batch.get("pair_reason") == "OK":
+            n_paired += 1
+        for obj in batch.get("objects", []):
+            n_objects += 1
+            if obj.get("position_valid"):
+                n_position_valid += 1
+            reason = str(obj.get("invalid_reason") or "")
+            if reason:
+                reasons[reason] = reasons.get(reason, 0) + 1
+    return {
+        "stage": "V2_POSITION_COVERAGE",
+        "result": "NOT_RUN",
+        "v2_accuracy": "BLOCKED",
+        "arm_ready": "NO",
+        "camera_contract": "NOT_RUN",
+        "batches": int(n_batches),
+        "batches_paired": int(n_paired),
+        "pair_rate": _metric_or_none(n_paired, n_batches),
+        "objects": int(n_objects),
+        "position_valid": int(n_position_valid),
+        "position_valid_rate": _metric_or_none(n_position_valid, n_objects),
+        "invalid_reason_counts": reasons,
+        "note": (
+            "Coverage only. Independent surface-point truth required for "
+            "V2_ACCURACY; synthetic depth must not be marked PASS."
+        ),
+    }

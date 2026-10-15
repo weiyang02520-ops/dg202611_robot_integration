@@ -1,15 +1,16 @@
-"""YOLO11-seg box decode, class filter and per-class NMS.
+"""YOLO11-seg box decode, optional mask reconstruct, class filter and NMS.
 
 Operates on NumPy tensors only. Does not import Ultralytics or rclpy.
 """
 
 from __future__ import annotations
 
-from typing import Dict, Iterable, List, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 
 from vision_perception.image_io import restore_xyxy_from_letterbox
+from vision_perception.mask_decode import reconstruct_instance_mask
 from vision_perception.types import (
     ALLOWED_CLASSES,
     BoundingBox2D,
@@ -83,11 +84,15 @@ def decode_yolo11_seg_boxes(
     nms_iou_threshold: float = 0.45,
     max_detections: int = 20,
     allowed_classes: Iterable[str] = ALLOWED_CLASSES,
+    output1: Optional[np.ndarray] = None,
+    mask_threshold: float = 0.5,
 ) -> List[Detection]:
     """Decode YOLO11n-seg output0=[1,116,8400] into original-image detections.
 
-    Scores are treated as probabilities (no extra sigmoid). Mask coefficients are
-    ignored in V1 publishing; output1 is not required here.
+    Scores are treated as probabilities (no extra sigmoid). When ``output1``
+    (mask prototypes) is provided, each kept detection may carry a binary
+    instance mask (``mask_source=yolo_seg``); otherwise masks are omitted and
+    V2 surface sampling falls back to bbox_fill.
     """
     if output0.ndim != 3:
         raise ValueError(f"output0 must be 3D, got shape={output0.shape}")
@@ -100,7 +105,7 @@ def decode_yolo11_seg_boxes(
     preds = np.transpose(output0[0], (1, 0))
     boxes_xywh = preds[:, 0:4]
     class_scores = preds[:, 4:84]
-    # preds[:, 84:116] are mask coefficients; unused in V1.
+    mask_coeffs = preds[:, 84:116]
 
     class_ids = np.argmax(class_scores, axis=1).astype(np.int32)
     scores = class_scores[np.arange(class_scores.shape[0]), class_ids].astype(np.float32)
@@ -114,13 +119,14 @@ def decode_yolo11_seg_boxes(
     if not allowed_ids:
         raise ValueError("class_id_to_name does not contain any allowed target class")
 
-    mask = (scores >= confidence_threshold) & np.isin(class_ids, list(allowed_ids))
-    if not np.any(mask):
+    keep_mask = (scores >= confidence_threshold) & np.isin(class_ids, list(allowed_ids))
+    if not np.any(keep_mask):
         return []
 
-    boxes_xywh = boxes_xywh[mask]
-    scores = scores[mask]
-    class_ids = class_ids[mask]
+    boxes_xywh = boxes_xywh[keep_mask]
+    scores = scores[keep_mask]
+    class_ids = class_ids[keep_mask]
+    mask_coeffs = mask_coeffs[keep_mask]
     boxes_xyxy = xywh_to_xyxy(boxes_xywh)
 
     keep = nms_per_class(boxes_xyxy, scores, class_ids, nms_iou_threshold)
@@ -140,12 +146,27 @@ def decode_yolo11_seg_boxes(
         )
         if clipped is None:
             continue
+        bbox = BoundingBox2D.from_xyxy(*clipped)
+        inst_mask = None
+        mask_source = ""
+        if output1 is not None:
+            inst_mask, mask_source = reconstruct_instance_mask(
+                mask_coeffs[index],
+                output1,
+                letterbox,
+                bbox,
+                mask_threshold=mask_threshold,
+            )
+            if inst_mask is None:
+                mask_source = ""
         detections.append(
             Detection(
                 detection_index=0,
                 class_name=class_name,
                 confidence=float(scores[index]),
-                bbox=BoundingBox2D.from_xyxy(*clipped),
+                bbox=bbox,
+                mask=inst_mask,
+                mask_source=mask_source,
             )
         )
 

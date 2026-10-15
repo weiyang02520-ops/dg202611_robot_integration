@@ -192,3 +192,19 @@ def test_v1_evidence_templates_exist():
         params = (base / "parameters.yaml.template").read_text(encoding="utf-8")
         assert "enable_objects: false" in params
         assert "enable_tracking: false" in params
+
+
+def test_v2_position_evidence_templates_exist():
+    root = Path(__file__).resolve().parents[1] / "evidence" / "templates" / "V2_POSITION"
+    assert root.is_dir()
+    meta = (root / "metadata.json.template").read_text(encoding="utf-8")
+    params = (root / "parameters.yaml.template").read_text(encoding="utf-8")
+    protocol = (root / "acceptance_protocol.yaml.template").read_text(encoding="utf-8")
+    assert '"result": "NOT_RUN"' in meta
+    assert '"v2_accuracy": "BLOCKED"' in meta
+    assert '"arm_ready": "NO"' in meta
+    assert "enable_objects: true" in params
+    assert "enable_tracking: false" in params
+    assert "sync_wait_sec" in params
+    assert "BLOCKED" in protocol
+    assert "independent_surface" in protocol

@@ -6,7 +6,9 @@ Pure-Python / NumPy only. Do not import rclpy here.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Sequence, Tuple
+from typing import Any, List, Optional, Sequence, Tuple
+
+import numpy as np
 
 
 ALLOWED_CLASSES = ("bottle", "cup")
@@ -70,12 +72,19 @@ class BoundingBox2D:
 
 @dataclass(frozen=True)
 class Detection:
-    """One filtered 2D detection before ROS message mapping."""
+    """One filtered 2D detection before ROS message mapping.
+
+    Optional ``mask`` is HxW uint8 (0/1) in original image coordinates when
+    YOLO-seg reconstruction succeeded; otherwise None and surface sampling
+    falls back to bbox_fill.
+    """
 
     detection_index: int
     class_name: str
     confidence: float
     bbox: BoundingBox2D
+    mask: Optional[Any] = None  # np.ndarray | None; Any avoids dataclass hash issues
+    mask_source: str = ""
 
 
 @dataclass(frozen=True)
@@ -176,6 +185,19 @@ def sort_detections_deterministic(items: Sequence[Detection]) -> List[Detection]
             class_name=item.class_name,
             confidence=item.confidence,
             bbox=item.bbox,
+            mask=item.mask,
+            mask_source=item.mask_source,
         )
         for index, item in enumerate(ordered)
     ]
+
+
+def detection_mask_or_none(detection: Detection) -> Optional[np.ndarray]:
+    """Return a contiguous uint8 HxW mask when present and non-empty."""
+    mask = detection.mask
+    if mask is None:
+        return None
+    array = np.asarray(mask)
+    if array.ndim != 2 or array.size == 0:
+        return None
+    return np.ascontiguousarray((array > 0).astype(np.uint8))

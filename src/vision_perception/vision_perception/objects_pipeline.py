@@ -13,6 +13,7 @@ from vision_perception.types import (
     POSITION_REFERENCE,
     Detection,
     DetectionBatch,
+    detection_mask_or_none,
 )
 
 
@@ -150,13 +151,22 @@ def build_object_batch(
         )
 
     built: List[Object3D] = []
+    batch_mask_source = "bbox_fill"
     for det in detections:
+        inst_mask = detection_mask_or_none(det)
+        mask_kw = {}
+        if inst_mask is not None and det.mask_source == "yolo_seg":
+            # Ensure mask matches depth plane size; otherwise fall back.
+            if inst_mask.shape[:2] == depth.depth_m.shape[:2]:
+                mask_kw = {"mask": inst_mask, "mask_source": "yolo_seg"}
+                batch_mask_source = "yolo_seg"
         sample = sample_visible_surface(
             depth.depth_m,
             det.bbox,
             calibration,
             min_depth_m=min_depth_m,
             max_depth_m=max_depth_m,
+            **mask_kw,
         )
         built.append(
             Object3D(
@@ -190,5 +200,5 @@ def build_object_batch(
         pair_skew_sec=pair_skew_sec,
         pair_reason=pair_reason,
         calibration_id=calibration.calibration_id,
-        mask_source="bbox_fill",
+        mask_source=batch_mask_source,
     )
