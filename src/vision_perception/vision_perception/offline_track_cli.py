@@ -54,6 +54,14 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--match-iou", type=float, default=0.30)
     parser.add_argument("--confirm-hits", type=int, default=3)
     parser.add_argument("--lost-timeout-sec", type=float, default=0.70)
+    parser.add_argument(
+        "--identity-annotations",
+        default="",
+        help=(
+            "Optional identity labels JSON for IDF1 scaffold numbers. "
+            "result stays NOT_RUN (never auto PASS)."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -69,12 +77,24 @@ def _write_tracks_csv(path: str, rows: List[Dict[str, Any]]) -> None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
+    from vision_perception.evaluation import load_identity_annotations_file
     from vision_perception.offline_track import load_track_sequence, run_tracker_on_frames
 
     seq_path = Path(args.sequence)
     if not seq_path.is_file():
         print(f"ERROR: sequence not found: {seq_path}", file=sys.stderr)
         return 2
+    gt_map = None
+    if args.identity_annotations:
+        ann_path = Path(args.identity_annotations)
+        if not ann_path.is_file():
+            print(f"ERROR: identity annotations not found: {ann_path}", file=sys.stderr)
+            return 2
+        try:
+            gt_map = load_identity_annotations_file(str(ann_path))
+        except Exception as exc:  # noqa: BLE001
+            print(f"ERROR: bad identity annotations: {exc}", file=sys.stderr)
+            return 1
     try:
         raw = json.loads(seq_path.read_text(encoding="utf-8"))
         frames = load_track_sequence(raw)
@@ -83,6 +103,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             match_iou=float(args.match_iou),
             confirm_hits=int(args.confirm_hits),
             lost_timeout_sec=float(args.lost_timeout_sec),
+            gt_id_by_frame_det=gt_map,
         )
     except Exception as exc:  # noqa: BLE001
         print(f"ERROR: offline track failed: {exc}", file=sys.stderr)

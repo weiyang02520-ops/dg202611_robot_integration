@@ -10,8 +10,10 @@ from vision_perception.evaluation import (
     ImageEvalCase,
     TrackedIdentity,
     cases_from_offline_batches,
+    compute_idf1_from_aligned_ids,
     evaluate_cases,
     evaluate_offline_payload,
+    load_identity_annotations_file,
     match_same_class_iou,
     summarize_v3_tracking_scaffold,
 )
@@ -127,4 +129,20 @@ def test_v3_scaffold_counts_duplicate_ids_and_switches_with_labels():
     assert summary["same_frame_duplicate_ids"] == 1
     assert summary["id_switches"] == 1
     assert summary["result"] == "NOT_RUN"
-    assert summary["idf1"] == "BLOCKED"
+    # With labels, numeric IDF1 is reported but never auto-PASS.
+    assert summary["idf1"] is not None and summary["idf1"] != "BLOCKED"
+    assert summary["idtp"] is not None
+
+
+def test_idf1_perfect_alignment_and_annotation_loader():
+    gt = {("f0", 0): "a", ("f0", 1): "b", ("f1", 0): "a", ("f1", 1): "b"}
+    pred = {("f0", 0): "p1", ("f0", 1): "p2", ("f1", 0): "p1", ("f1", 1): "p2"}
+    metrics = compute_idf1_from_aligned_ids(gt, pred)
+    assert metrics["idtp"] == 4
+    assert metrics["idfp"] == 0 and metrics["idfn"] == 0
+    assert metrics["idf1"] == 1.0
+    loaded = load_identity_annotations_file(
+        str(EXAMPLES / "track_identity_annotations.example.json")
+    )
+    assert loaded[("f0", 0)] == "cup_left"
+    assert loaded[("f2", 1)] == "cup_right"

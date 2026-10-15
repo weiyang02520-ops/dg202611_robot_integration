@@ -5,10 +5,11 @@ Canonical empty shells for isolated workspaces that only sync
 
 | Path | Stage |
 |---|---|
+| `templates/V0_SHELL/` | Skeleton status-only (`mode:=skeleton`) |
 | `templates/V1_OFFLINE/` | Offline 2D CLI |
 | `templates/V1_ROS/` | `mode:=v1_ros` fake/webcam |
 | `templates/V2_POSITION/` | Offline objects / fake-depth smoke (`enable_objects`) |
-| `templates/V3_TRACKING/` | Offline track sequence / `enable_tracking` scaffold |
+| `templates/V3_TRACKING/` | Offline track sequence / `enable_tracking` scaffold (`tracks.csv.template`, `session_reset_timeline.yaml.template`) |
 
 Installed to: `share/vision_perception/evidence/templates/…`
 

@@ -6,7 +6,7 @@ emits track rows + V3 scaffold metrics (idf1=BLOCKED without identity labels).
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Mapping, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from vision_perception.evaluation import (
     TrackedIdentity,
@@ -78,6 +78,7 @@ def run_tracker_on_frames(
     match_iou: float = DEFAULT_MATCH_IOU,
     confirm_hits: int = DEFAULT_CONFIRM_HITS,
     lost_timeout_sec: float = DEFAULT_LOST_TIMEOUT_SEC,
+    gt_id_by_frame_det: Optional[Mapping[Tuple[str, int], str]] = None,
 ) -> Dict[str, Any]:
     """Associate detections across frames; return tracks payload + scaffold metrics."""
     tracker = MultiObjectTracker(
@@ -140,10 +141,12 @@ def run_tracker_on_frames(
                 )
             )
 
+    has_gt = bool(gt_id_by_frame_det)
     metrics = summarize_v3_tracking_scaffold(
         identities,
         frame_order=frame_order,
-        has_identity_annotations=False,
+        gt_id_by_frame_det=gt_id_by_frame_det,
+        has_identity_annotations=has_gt,
     )
     return {
         "stage": "V3_TRACKING_OFFLINE",

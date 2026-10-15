@@ -46,6 +46,30 @@ def is_input_stale(
     return float(last_input_age_sec) > float(input_stale_sec)
 
 
+def source_stamp_age_sec(
+    stamp_sec: int,
+    stamp_nanosec: int,
+    *,
+    now_sec: float,
+) -> float:
+    """Age of a message source stamp relative to ``now_sec`` (seconds)."""
+    stamp = float(stamp_sec) + float(stamp_nanosec) * 1e-9
+    return float(now_sec) - stamp
+
+
+def is_observation_too_old(
+    stamp_sec: int,
+    stamp_nanosec: int,
+    *,
+    now_sec: float,
+    max_observation_age_sec: float = 0.500,
+) -> bool:
+    """Plan §9: drop outputs whose source stamp age exceeds the gate."""
+    return source_stamp_age_sec(
+        stamp_sec, stamp_nanosec, now_sec=now_sec
+    ) > float(max_observation_age_sec)
+
+
 def compose_v1_ros_diagnostic(
     *,
     frames_received: int,
@@ -77,6 +101,8 @@ def compose_v1_ros_diagnostic(
     last_pair_skew_sec: Optional[float] = None,
     depth_frames_received: int = 0,
     camera_info_received: bool = False,
+    observations_dropped_age: int = 0,
+    max_observation_age_sec: float = 0.500,
 ) -> Tuple[bytes, str, Dict[str, str]]:
     """Return (level_byte, message, key/value fields) for v1_ros(+optional V2/V3) status."""
     error = (last_worker_error or "").strip()
@@ -141,6 +167,8 @@ def compose_v1_ros_diagnostic(
         "last_pair_skew_sec": skew_text,
         "last_input_age_sec": age_text,
         "input_stale_sec": f"{float(input_stale_sec):.3f}",
+        "max_observation_age_sec": f"{float(max_observation_age_sec):.3f}",
+        "observations_dropped_age": str(int(observations_dropped_age)),
         "last_inference_ms": (
             f"{float(last_inference_ms):.2f}" if last_inference_ms >= 0 else ""
         ),

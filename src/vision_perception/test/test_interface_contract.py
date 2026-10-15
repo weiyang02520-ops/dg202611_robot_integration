@@ -227,6 +227,8 @@ def test_v3_tracking_evidence_templates_exist():
     meta = (root / "metadata.json.template").read_text(encoding="utf-8")
     params = (root / "parameters.yaml.template").read_text(encoding="utf-8")
     protocol = (root / "acceptance_protocol.yaml.template").read_text(encoding="utf-8")
+    tracks = (root / "tracks.csv.template").read_text(encoding="utf-8")
+    timeline = (root / "session_reset_timeline.yaml.template").read_text(encoding="utf-8")
     assert '"result": "NOT_RUN"' in meta
     assert '"idf1": "BLOCKED"' in meta
     assert '"arm_ready": "NO"' in meta
@@ -235,3 +237,17 @@ def test_v3_tracking_evidence_templates_exist():
     assert "tracker_confirm_hits: 3" in params
     assert "NOT_RUN" in protocol
     assert "identity_annotations_required" in protocol
+    assert "object_id" in tracks and "tracking_session_id" in tracks
+    assert "session_start" in timeline or "events:" in timeline
+
+
+def test_v0_shell_evidence_templates_exist():
+    root = Path(__file__).resolve().parents[1] / "evidence" / "templates" / "V0_SHELL"
+    assert root.is_dir()
+    meta = (root / "metadata.json.template").read_text(encoding="utf-8")
+    params = (root / "parameters.yaml.template").read_text(encoding="utf-8")
+    assert '"result": "NOT_RUN"' in meta
+    assert '"arm_ready": "NO"' in meta
+    assert "NONE_NOT_APPLICABLE" in meta
+    assert "mode: skeleton" in params
+    assert "enable_tracking: false" in params

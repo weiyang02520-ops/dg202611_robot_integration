@@ -48,9 +48,14 @@ does **not** auto-download models and weights must not be committed.
   `bbox_fill`. Offline CLI: `vision_offline_objects` (coverage metrics only;
   `v2_accuracy=BLOCKED` without surface truth).
 - Offline CLI: `vision_offline_track` (detection-sequence JSON → tracks CSV/JSON;
-  scaffold metrics only; `idf1=BLOCKED` without identity labels).
-- V3 eval scaffold: ID-switch / same-frame uniqueness checks; without identity
-  labels `result=NOT_RUN`, `idf1=BLOCKED` (never invent PASS).
+  optional `--identity-annotations` for numeric IDF1; `result` always `NOT_RUN`).
+- Offline CLI: `vision_offline_objects --enable-tracking` fills `object_id` on
+  objects CSV/JSON across a file sequence.
+- `object_id` is published on `/objects` only (not on `VisionDetection2D`).
+- V3 eval scaffold: ID-switch / same-frame uniqueness / IDF1 formula; never
+  auto-marks PASS.
+- §5/§9 knobs exposed: `sync_queue_size`, `max_observation_age_sec`, surface-sample
+  thresholds (`mask_erode_kernel`, `depth_patch_size`, …).
 - `orientation_valid` remains false; `ARM_READY=NO`.
 
 ### Module table (pure algorithm → ROS gates)

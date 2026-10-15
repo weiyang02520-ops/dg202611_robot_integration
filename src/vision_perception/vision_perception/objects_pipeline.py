@@ -100,6 +100,12 @@ def build_object_batch(
     min_depth_m: float = 0.5,
     max_depth_m: float = 1.5,
     tracking_session_id: str = "",
+    mask_erode_kernel: int = 3,
+    depth_patch_size: int = 7,
+    min_patch_pixels: int = 25,
+    min_valid_depth_fraction: float = 0.60,
+    max_depth_mad_m: float = 0.020,
+    max_depth_spread_m: float = 0.050,
 ) -> ObjectBatch:
     """One Object3D per retained 2D detection (including depth failures)."""
     detections: Sequence[Detection] = detection_batch.detections
@@ -170,6 +176,13 @@ def build_object_batch(
             calibration,
             min_depth_m=min_depth_m,
             max_depth_m=max_depth_m,
+            mask_threshold_pixels=int(min_patch_pixels),
+            mask_erode_kernel=int(mask_erode_kernel),
+            patch_size=int(depth_patch_size),
+            min_patch_pixels=int(min_patch_pixels),
+            min_valid_depth_fraction=float(min_valid_depth_fraction),
+            max_depth_mad_m=float(max_depth_mad_m),
+            max_depth_spread_m=float(max_depth_spread_m),
             **mask_kw,
         )
         built.append(

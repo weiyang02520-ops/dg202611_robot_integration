@@ -21,8 +21,18 @@ from vision_perception.message_mapping import (
     detection_batch_to_dict,
     object_batch_to_dict,
 )
-from vision_perception.objects_pipeline import ObjectBatch, build_object_batch
+from vision_perception.objects_pipeline import (
+    ObjectBatch,
+    apply_track_assignments,
+    build_object_batch,
+)
 from vision_perception.pipeline import DetectionEngine
+from vision_perception.tracker import (
+    DEFAULT_CONFIRM_HITS,
+    DEFAULT_LOST_TIMEOUT_SEC,
+    DEFAULT_MATCH_IOU,
+    MultiObjectTracker,
+)
 
 
 def load_depth_npy(path: str) -> np.ndarray:
@@ -74,8 +84,22 @@ def run_offline_objects_on_paths(
     ort_threads: int = 2,
     mask_threshold: float = 0.5,
     frame_id: str = "offline_optical_frame",
+    enable_tracking: bool = False,
+    tracker_match_iou: float = DEFAULT_MATCH_IOU,
+    tracker_confirm_hits: int = DEFAULT_CONFIRM_HITS,
+    tracker_lost_timeout_sec: float = DEFAULT_LOST_TIMEOUT_SEC,
+    mask_erode_kernel: int = 3,
+    depth_patch_size: int = 7,
+    min_patch_pixels: int = 25,
+    min_valid_depth_fraction: float = 0.60,
+    max_depth_mad_m: float = 0.020,
+    max_depth_spread_m: float = 0.050,
 ) -> List[Dict[str, Any]]:
-    """Detect 2D then build ObjectBatch per (image, depth) pair."""
+    """Detect 2D then build ObjectBatch per (image, depth) pair.
+
+    Optional ``enable_tracking`` runs the pure MultiObjectTracker across the
+    file sequence (does not require ROS ``mode=v1_ros`` config gate).
+    """
     if len(image_paths) != len(depth_paths):
         raise ValueError(
             f"image/depth count mismatch: {len(image_paths)} vs {len(depth_paths)}"
@@ -97,8 +121,15 @@ def run_offline_objects_on_paths(
         }
     )
     engine = DetectionEngine.from_config(config)
+    tracker: Optional[MultiObjectTracker] = None
+    if enable_tracking:
+        tracker = MultiObjectTracker(
+            match_iou=float(tracker_match_iou),
+            confirm_hits=int(tracker_confirm_hits),
+            lost_timeout_sec=float(tracker_lost_timeout_sec),
+        )
     results: List[Dict[str, Any]] = []
-    for image_path, depth_path in zip(image_paths, depth_paths):
+    for frame_i, (image_path, depth_path) in enumerate(zip(image_paths, depth_paths)):
         rgb = load_image_file_rgb(image_path)
         depth_m = load_depth_npy(depth_path)
         if depth_m.shape[:2] != rgb.shape[:2]:
@@ -115,14 +146,25 @@ def run_offline_objects_on_paths(
             source_image_id=str(Path(image_path).name),
             frame_id=frame_id,
             calibration_id=calib.calibration_id,
+            stamp_sec=frame_i,
+            stamp_nanosec=0,
         )
         depth_frame = DepthFrame(
             depth_m=depth_m,
-            stamp_sec=0,
+            stamp_sec=frame_i,
             stamp_nanosec=0,
             frame_id=frame_id,
             encoding="32FC1",
         )
+        tracking_session_id = ""
+        track_assignments = ()
+        if tracker is not None:
+            track_assignments = tracker.update(
+                batch.detections,
+                stamp_sec=float(frame_i),
+                calibration_id=calib.calibration_id,
+            )
+            tracking_session_id = tracker.tracking_session_id
         objects = build_object_batch(
             batch,
             depth=depth_frame,
@@ -131,7 +173,20 @@ def run_offline_objects_on_paths(
             pair_reason="OK",
             min_depth_m=min_depth_m,
             max_depth_m=max_depth_m,
+            tracking_session_id=tracking_session_id,
+            mask_erode_kernel=mask_erode_kernel,
+            depth_patch_size=depth_patch_size,
+            min_patch_pixels=min_patch_pixels,
+            min_valid_depth_fraction=min_valid_depth_fraction,
+            max_depth_mad_m=max_depth_mad_m,
+            max_depth_spread_m=max_depth_spread_m,
         )
+        if track_assignments:
+            objects = apply_track_assignments(
+                objects,
+                track_assignments,
+                tracking_session_id=tracking_session_id,
+            )
         results.append(
             {
                 "detections": detection_batch_to_dict(batch),

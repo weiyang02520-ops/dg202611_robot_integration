@@ -58,6 +58,7 @@ from vision_perception.status_fields import (
     as_diagnostic_level_byte,
     compose_v1_ros_diagnostic,
     is_input_stale,
+    is_observation_too_old,
 )
 from vision_perception.tracker import MultiObjectTracker, stamp_sec_from_parts
 
@@ -117,8 +118,16 @@ class VisionPerceptionNode(Node):
             "output_frame_policy": "input_optical_header",
             "sync_tolerance_sec": 0.010,
             "sync_wait_sec": 0.100,
+            "sync_queue_size": 10,
+            "max_observation_age_sec": 0.500,
             "min_depth_m": 0.5,
             "max_depth_m": 1.5,
+            "mask_erode_kernel": 3,
+            "depth_patch_size": 7,
+            "min_patch_pixels": 25,
+            "min_valid_depth_fraction": 0.60,
+            "max_depth_mad_m": 0.020,
+            "max_depth_spread_m": 0.050,
             "inference_rate_hz": 5.0,
             "confidence_threshold": 0.35,
             "nms_iou_threshold": 0.45,
@@ -165,6 +174,15 @@ class VisionPerceptionNode(Node):
         self._tracking_session_id = ""
         self._min_depth_m = 0.5
         self._max_depth_m = 1.5
+        self._mask_erode_kernel = 3
+        self._depth_patch_size = 7
+        self._min_patch_pixels = 25
+        self._min_valid_depth_fraction = 0.60
+        self._max_depth_mad_m = 0.020
+        self._max_depth_spread_m = 0.050
+        self._sync_queue_size = 10
+        self._max_observation_age_sec = 0.500
+        self._observations_dropped_age = 0
         self._depth_topic = ""
         self._camera_info_topic = ""
         self._input_stale_sec = 1.0
@@ -229,8 +247,16 @@ class VisionPerceptionNode(Node):
             "output_frame_policy",
             "sync_tolerance_sec",
             "sync_wait_sec",
+            "sync_queue_size",
+            "max_observation_age_sec",
             "min_depth_m",
             "max_depth_m",
+            "mask_erode_kernel",
+            "depth_patch_size",
+            "min_patch_pixels",
+            "min_valid_depth_fraction",
+            "max_depth_mad_m",
+            "max_depth_spread_m",
             "tracker_match_iou",
             "tracker_confirm_hits",
             "tracker_lost_timeout_sec",
@@ -299,6 +325,14 @@ class VisionPerceptionNode(Node):
         self._enable_tracking = bool(cfg.enable_tracking or cfg.tracking_enabled)
         self._min_depth_m = float(cfg.min_depth_m)
         self._max_depth_m = float(cfg.max_depth_m)
+        self._mask_erode_kernel = int(cfg.mask_erode_kernel)
+        self._depth_patch_size = int(cfg.depth_patch_size)
+        self._min_patch_pixels = int(cfg.min_patch_pixels)
+        self._min_valid_depth_fraction = float(cfg.min_valid_depth_fraction)
+        self._max_depth_mad_m = float(cfg.max_depth_mad_m)
+        self._max_depth_spread_m = float(cfg.max_depth_spread_m)
+        self._sync_queue_size = int(cfg.sync_queue_size)
+        self._max_observation_age_sec = float(cfg.max_observation_age_sec)
         self._depth_topic = str(cfg.depth_topic)
         self._camera_info_topic = str(cfg.camera_info_topic)
 
@@ -334,7 +368,7 @@ class VisionPerceptionNode(Node):
             self._object_output_active = True
             self._depth_buffer = DepthFrameBuffer(
                 tolerance_sec=float(cfg.sync_tolerance_sec),
-                max_size=10,
+                max_size=int(cfg.sync_queue_size),
             )
             self._sync_gate = RgbDepthSyncGate(
                 self._depth_buffer,
@@ -525,6 +559,17 @@ class VisionPerceptionNode(Node):
             pair_reason = "DEPTH_UNPAIRED"
             calib = None
 
+        # Plan §9: never publish observations older than max_observation_age_sec.
+        now_sec = self.get_clock().now().nanoseconds * 1e-9
+        if is_observation_too_old(
+            decoded.header.stamp_sec,
+            decoded.header.stamp_nanosec,
+            now_sec=now_sec,
+            max_observation_age_sec=self._max_observation_age_sec,
+        ):
+            self._observations_dropped_age += 1
+            return
+
         calib_id = calib.calibration_id if calib is not None else ""
         t0 = time.monotonic()
         batch = self._engine.process_rgb_array(
@@ -568,6 +613,12 @@ class VisionPerceptionNode(Node):
                 min_depth_m=self._min_depth_m,
                 max_depth_m=self._max_depth_m,
                 tracking_session_id=tracking_session_id,
+                mask_erode_kernel=self._mask_erode_kernel,
+                depth_patch_size=self._depth_patch_size,
+                min_patch_pixels=self._min_patch_pixels,
+                min_valid_depth_fraction=self._min_valid_depth_fraction,
+                max_depth_mad_m=self._max_depth_mad_m,
+                max_depth_spread_m=self._max_depth_spread_m,
             )
             if track_assignments:
                 objects = apply_track_assignments(
@@ -683,6 +734,8 @@ class VisionPerceptionNode(Node):
                 last_pair_skew_sec=self._last_pair_skew_sec,
                 depth_frames_received=self._depth_frames_received,
                 camera_info_received=self._camera_info_received,
+                observations_dropped_age=self._observations_dropped_age,
+                max_observation_age_sec=self._max_observation_age_sec,
             )
             status.level = as_diagnostic_level_byte(level)
             status.message = msg

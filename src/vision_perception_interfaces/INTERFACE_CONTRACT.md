@@ -19,9 +19,12 @@
 - With `mode:=v1_ros` and `enable_objects:=true`, the node may publish `/dg/vision/objects` after depth + CameraInfo pairing. Missing depth/calibration → `position_valid=false` / `DEPTH_UNPAIRED` (or status degrade); never forge 3D.
 - V2 (tracking off): `object_id` and `tracking_session_id` empty; `tracking_valid=false`.
 - V3 (`enable_tracking:=true`, `mode:=v1_ros` only): confirmed matches get non-empty
-  `object_id` and `tracking_valid=true` within `tracking_session_id`. Tentative /
-  unmatched stay empty + false. STALE / calibration change / clock rollback mint a
-  new session; expired IDs are never reused. No ReID / cross-restart identity.
+  `object_id` and `tracking_valid=true` within `tracking_session_id` on
+  **`VisionObject` / `/objects`** (requires `enable_objects` to publish IDs).
+  `VisionDetection2D` does not carry `object_id`. Tentative / unmatched stay empty
+  + false. STALE / calibration change / clock rollback mint a new session; expired
+  IDs are never reused. Matcher: deterministic greedy per-class IoU (not Hungarian).
+  No ReID / cross-restart identity.
 - Consumers of legacy `/perception/localized_objects` are out of scope; this package does not replace them silently.
 
 ## Runtime gates (vision_perception package)

@@ -381,6 +381,103 @@ def count_id_switches(
     return switches
 
 
+def compute_idf1_from_aligned_ids(
+    gt_id_by_frame_det: Mapping[Tuple[str, int], str],
+    pred_id_by_frame_det: Mapping[Tuple[str, int], str],
+) -> Dict[str, Any]:
+    """Clear-MOT-style IDF1 scaffold on already-aligned (frame, det) keys.
+
+    Builds a greedy GT↔pred identity assignment from co-occurrence counts.
+    Returns numeric idtp/idfp/idfn/idp/idr/idf1. Never sets acceptance PASS.
+    """
+    cooccur: Dict[Tuple[str, str], int] = {}
+    gt_count: Dict[str, int] = {}
+    pred_count: Dict[str, int] = {}
+    keys = set(gt_id_by_frame_det) | set(pred_id_by_frame_det)
+    for key in keys:
+        gt = str(gt_id_by_frame_det.get(key, "") or "").strip()
+        pred = str(pred_id_by_frame_det.get(key, "") or "").strip()
+        if gt:
+            gt_count[gt] = gt_count.get(gt, 0) + 1
+        if pred:
+            pred_count[pred] = pred_count.get(pred, 0) + 1
+        if gt and pred:
+            pair = (gt, pred)
+            cooccur[pair] = cooccur.get(pair, 0) + 1
+
+    pairs = sorted(
+        ((count, gt, pred) for (gt, pred), count in cooccur.items()),
+        key=lambda item: (-item[0], item[1], item[2]),
+    )
+    used_gt: set[str] = set()
+    used_pred: set[str] = set()
+    idtp = 0
+    for count, gt, pred in pairs:
+        if gt in used_gt or pred in used_pred:
+            continue
+        used_gt.add(gt)
+        used_pred.add(pred)
+        idtp += int(count)
+
+    n_gt = sum(gt_count.values())
+    n_pred = sum(pred_count.values())
+    idfn = max(0, n_gt - idtp)
+    idfp = max(0, n_pred - idtp)
+    idp = _metric_or_none(idtp, idtp + idfp)
+    idr = _metric_or_none(idtp, idtp + idfn)
+    if idp is None or idr is None or (idp + idr) <= 0:
+        idf1: Optional[float] = None
+    else:
+        idf1 = 2.0 * idp * idr / (idp + idr)
+    return {
+        "idtp": int(idtp),
+        "idfp": int(idfp),
+        "idfn": int(idfn),
+        "idp": idp,
+        "idr": idr,
+        "idf1": idf1,
+        "idf1_computable": idf1 is not None,
+    }
+
+
+def load_identity_annotations_file(path: str) -> Dict[Tuple[str, int], str]:
+    """Load identity annotations keyed by (frame_id, detection_index).
+
+    Accepted shapes:
+      {"frames":[{"frame_id":"f0","identities":[{"detection_index":0,"gt_id":"a"}]}]}
+      [{"frame_id":"f0","detection_index":0,"gt_id":"a"}]
+    """
+    import json
+    from pathlib import Path
+
+    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    out: Dict[Tuple[str, int], str] = {}
+    if isinstance(raw, dict) and "frames" in raw:
+        for frame in raw["frames"]:
+            frame_id = str(frame.get("frame_id") or frame.get("source_image_id") or "")
+            if not frame_id:
+                raise ValueError("identity frame missing frame_id")
+            for item in frame.get("identities", frame.get("boxes", [])):
+                det_idx = int(item["detection_index"])
+                gt_id = str(item.get("gt_id") or item.get("identity_id") or "")
+                if not gt_id:
+                    raise ValueError("identity entry missing gt_id")
+                out[(frame_id, det_idx)] = gt_id
+    elif isinstance(raw, list):
+        for item in raw:
+            frame_id = str(item.get("frame_id") or item.get("source_image_id") or "")
+            if not frame_id:
+                raise ValueError("identity row missing frame_id")
+            det_idx = int(item["detection_index"])
+            gt_id = str(item.get("gt_id") or item.get("identity_id") or "")
+            if not gt_id:
+                raise ValueError("identity row missing gt_id")
+            out[(frame_id, det_idx)] = gt_id
+    else:
+        raise ValueError("identity annotations must be a list or {frames:[...]}")
+    return out
+
+
 def summarize_v3_tracking_scaffold(
     identities: Sequence[TrackedIdentity],
     *,
@@ -388,15 +485,18 @@ def summarize_v3_tracking_scaffold(
     gt_id_by_frame_det: Optional[Mapping[Tuple[str, int], str]] = None,
     has_identity_annotations: bool = False,
 ) -> Dict[str, Any]:
-    """V3 tracking scaffold (plan §10.3). Never claims IDF1 PASS without labels.
+    """V3 tracking scaffold (plan §10.3). Never auto-marks IDF1 PASS.
 
     Without identity annotations ``idf1`` stays blocked and ``result=NOT_RUN``.
-    Always reports same-frame ID uniqueness violations on synthetic sequences.
+    With annotations, numeric IDF1 is reported but ``result`` remains ``NOT_RUN``
+    (formal acceptance is a separate evidence protocol).
     """
     n = len(identities)
     n_valid = sum(1 for i in identities if i.tracking_valid and i.object_id)
     duplicate_ids = count_same_frame_duplicate_ids(identities)
     switches = 0
+    idf1_block: Any = "BLOCKED"
+    id_metrics: Optional[Dict[str, Any]] = None
     if (
         has_identity_annotations
         and frame_order is not None
@@ -408,11 +508,18 @@ def summarize_v3_tracking_scaffold(
             if i.tracking_valid and i.object_id
         }
         switches = count_id_switches(frame_order, gt_id_by_frame_det, pred_map)
+        id_metrics = compute_idf1_from_aligned_ids(gt_id_by_frame_det, pred_map)
+        idf1_block = id_metrics.get("idf1")
 
     return {
         "stage": "V3_TRACKING_SCAFFOLD",
         "result": "NOT_RUN",
-        "idf1": "BLOCKED",
+        "idf1": idf1_block,
+        "idp": None if id_metrics is None else id_metrics.get("idp"),
+        "idr": None if id_metrics is None else id_metrics.get("idr"),
+        "idtp": None if id_metrics is None else id_metrics.get("idtp"),
+        "idfp": None if id_metrics is None else id_metrics.get("idfp"),
+        "idfn": None if id_metrics is None else id_metrics.get("idfn"),
         "arm_ready": "NO",
         "camera_contract": "NOT_RUN",
         "identities": int(n),
@@ -421,8 +528,7 @@ def summarize_v3_tracking_scaffold(
         "id_switches": int(switches) if has_identity_annotations else None,
         "has_identity_annotations": bool(has_identity_annotations),
         "note": (
-            "Scaffold only. IDF1 / formal ID-switch acceptance requires "
-            "identity-annotated sequences; do not mark PASS from synthetic "
-            "crossing cups alone."
+            "Scaffold only. Numeric IDF1 with labels is still result=NOT_RUN; "
+            "formal PASS requires the acceptance protocol and owner sign-off."
         ),
     }

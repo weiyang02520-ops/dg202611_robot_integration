@@ -78,6 +78,7 @@ def sample_visible_surface(
     min_depth_m: float = 0.5,
     max_depth_m: float = 1.5,
     mask_threshold_pixels: int = 25,
+    mask_erode_kernel: int = 3,
     patch_size: int = 7,
     min_patch_pixels: int = 25,
     min_valid_depth_fraction: float = 0.60,
@@ -104,7 +105,7 @@ def sample_visible_surface(
     if mask is None:
         mask = bbox_fill_mask(bbox, h, w)
         mask_source = "bbox_fill"
-    eroded = erode_mask_once(mask, kernel=3)
+    eroded = erode_mask_once(mask, kernel=int(mask_erode_kernel))
     # Keep erode inside bbox.
     bbox_mask = bbox_fill_mask(bbox, h, w)
     eroded = eroded & bbox_mask

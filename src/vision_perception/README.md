@@ -16,7 +16,8 @@ Independent manipulation-vision ROS2 package (arm-independent).
 | Optional `enable_tracking:=true` (v1_ros only) | V3: short-horizon per-class IoU tracker (**deterministic greedy**, not Hungarian). **Default false.** Confirmed matches fill `object_id` / `tracking_valid` on objects. |
 | Offline CLI `vision_offline_detect` | File → JSON/CSV. No ROS camera claim. |
 | Offline CLI `vision_offline_objects` | RGB + depth `.npy` + synthetic pinhole → objects JSON/CSV (coverage only). |
-| Offline CLI `vision_offline_track` | Detection-sequence JSON → tracks JSON/CSV + V3 scaffold metrics (`idf1=BLOCKED` without identity labels). |
+| Offline CLI `vision_offline_track` | Detection-sequence JSON → tracks JSON/CSV + V3 scaffold metrics (`--identity-annotations` can compute numeric IDF1; `result` stays `NOT_RUN`). |
+| `object_id` publish path | Only on `/dg/vision/objects` when `enable_objects` + tracking (or offline_objects `--enable-tracking`). Tracking-only does not extend `VisionDetection2D`. |
 | V2 mask | YOLO-seg contour when `output1` present; else `bbox_fill` fallback. |
 | Legacy `mode:=v1` | **Rejected** (non-zero exit). |
 | ZED / production camera contract | **Not authorized here.** `camera_contract=DEV_WEBCAM_ONLY / NOT_ZED` for v1_ros. Node may *subscribe* to ZED topic names but never starts the SDK. |
@@ -411,7 +412,23 @@ ros2 run vision_perception vision_offline_track -- \
 ```
 
 Matcher is **deterministic greedy per-class IoU** (not SciPy Hungarian).
-`--out-metrics` keeps `result=NOT_RUN` / `idf1=BLOCKED` without identity labels.
+Without `--identity-annotations`, metrics keep `idf1=BLOCKED`. With labels,
+numeric IDF1 may be reported but **`result` stays `NOT_RUN`** (no auto PASS).
+
+```bash
+ros2 run vision_perception vision_offline_track -- \
+  --sequence examples/track_sequence.example.json \
+  --identity-annotations examples/track_identity_annotations.example.json \
+  --out-metrics /tmp/v3_idf1_scaffold.json
+```
+
+`vision_offline_objects --enable-tracking` fills `object_id` / `tracking_session_id`
+across a file sequence (CSV columns included even when tracking is off).
+
+Startup-only §5/§9 knobs (defaults from the plan): `sync_queue_size`,
+`max_observation_age_sec` (drop old source stamps), `mask_erode_kernel`,
+`depth_patch_size`, `min_patch_pixels`, `min_valid_depth_fraction`,
+`max_depth_mad_m`, `max_depth_spread_m`.
 
 ## Boundaries
 

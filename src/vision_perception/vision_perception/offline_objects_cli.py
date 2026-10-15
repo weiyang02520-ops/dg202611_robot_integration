@@ -48,6 +48,14 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--max-detections", type=int, default=20)
     parser.add_argument("--ort-threads", type=int, default=2)
     parser.add_argument("--mask-threshold", type=float, default=0.5)
+    parser.add_argument(
+        "--enable-tracking",
+        action="store_true",
+        help="Run MultiObjectTracker across the file sequence (fills object_id).",
+    )
+    parser.add_argument("--match-iou", type=float, default=0.30)
+    parser.add_argument("--confirm-hits", type=int, default=3)
+    parser.add_argument("--lost-timeout-sec", type=float, default=0.70)
     return parser.parse_args(argv)
 
 
@@ -76,6 +84,8 @@ def _write_objects_csv(path: str, entries: List[Dict[str, Any]]) -> None:
         "mask_source",
         "orientation_valid",
         "tracking_valid",
+        "object_id",
+        "tracking_session_id",
         "pair_reason",
     ]
     out = Path(path)
@@ -108,6 +118,8 @@ def _write_objects_csv(path: str, entries: List[Dict[str, Any]]) -> None:
                         "mask_source": objects.get("mask_source", ""),
                         "orientation_valid": "false",
                         "tracking_valid": "false",
+                        "object_id": "",
+                        "tracking_session_id": objects.get("tracking_session_id", ""),
                         "pair_reason": objects.get("pair_reason", ""),
                     }
                 )
@@ -132,7 +144,9 @@ def _write_objects_csv(path: str, entries: List[Dict[str, Any]]) -> None:
                         "valid_depth_fraction": obj.get("valid_depth_fraction", ""),
                         "mask_source": obj.get("mask_source", ""),
                         "orientation_valid": False,
-                        "tracking_valid": False,
+                        "tracking_valid": bool(obj.get("tracking_valid", False)),
+                        "object_id": obj.get("object_id", ""),
+                        "tracking_session_id": objects.get("tracking_session_id", ""),
                         "pair_reason": objects.get("pair_reason", ""),
                     }
                 )
@@ -176,6 +190,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             max_detections=int(args.max_detections),
             ort_threads=int(args.ort_threads),
             mask_threshold=float(args.mask_threshold),
+            enable_tracking=bool(args.enable_tracking),
+            tracker_match_iou=float(args.match_iou),
+            tracker_confirm_hits=int(args.confirm_hits),
+            tracker_lost_timeout_sec=float(args.lost_timeout_sec),
         )
     except Exception as exc:  # noqa: BLE001
         print(f"ERROR: offline objects failed: {exc}", file=sys.stderr)

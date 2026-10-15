@@ -55,8 +55,18 @@ class VisionConfig:
     sync_tolerance_sec: float = 0.010
     # Plan §7.1: wait for depth after RGB before declaring DEPTH_UNPAIRED.
     sync_wait_sec: float = 0.100
+    sync_queue_size: int = 10
+    # Plan §9: drop outputs whose source stamp is older than this.
+    max_observation_age_sec: float = 0.500
     min_depth_m: float = 0.5
     max_depth_m: float = 1.5
+    # Plan §7.2 surface sampling (used when enable_objects=true).
+    mask_erode_kernel: int = 3
+    depth_patch_size: int = 7
+    min_patch_pixels: int = 25
+    min_valid_depth_fraction: float = 0.60
+    max_depth_mad_m: float = 0.020
+    max_depth_spread_m: float = 0.050
     # Plan §8 V3 tracker defaults (used only when enable_tracking=true).
     tracker_match_iou: float = 0.30
     tracker_confirm_hits: int = 3
@@ -179,8 +189,24 @@ def vision_config_from_mapping(raw: Mapping[str, Any] | None = None) -> VisionCo
             data.get("sync_tolerance_sec", DEFAULTS.sync_tolerance_sec)
         ),
         sync_wait_sec=float(data.get("sync_wait_sec", DEFAULTS.sync_wait_sec)),
+        sync_queue_size=int(data.get("sync_queue_size", DEFAULTS.sync_queue_size)),
+        max_observation_age_sec=float(
+            data.get("max_observation_age_sec", DEFAULTS.max_observation_age_sec)
+        ),
         min_depth_m=float(data.get("min_depth_m", DEFAULTS.min_depth_m)),
         max_depth_m=float(data.get("max_depth_m", DEFAULTS.max_depth_m)),
+        mask_erode_kernel=int(
+            data.get("mask_erode_kernel", DEFAULTS.mask_erode_kernel)
+        ),
+        depth_patch_size=int(data.get("depth_patch_size", DEFAULTS.depth_patch_size)),
+        min_patch_pixels=int(data.get("min_patch_pixels", DEFAULTS.min_patch_pixels)),
+        min_valid_depth_fraction=float(
+            data.get("min_valid_depth_fraction", DEFAULTS.min_valid_depth_fraction)
+        ),
+        max_depth_mad_m=float(data.get("max_depth_mad_m", DEFAULTS.max_depth_mad_m)),
+        max_depth_spread_m=float(
+            data.get("max_depth_spread_m", DEFAULTS.max_depth_spread_m)
+        ),
         tracker_match_iou=float(
             data.get("tracker_match_iou", DEFAULTS.tracker_match_iou)
         ),
@@ -239,6 +265,22 @@ def validate_vision_config(cfg: VisionConfig) -> None:
         raise ValueError("sync_tolerance_sec must be > 0")
     if cfg.sync_wait_sec < 0:
         raise ValueError("sync_wait_sec must be >= 0")
+    if cfg.sync_queue_size < 1:
+        raise ValueError("sync_queue_size must be >= 1")
+    if cfg.max_observation_age_sec <= 0:
+        raise ValueError("max_observation_age_sec must be > 0")
+    if cfg.mask_erode_kernel < 1 or cfg.mask_erode_kernel % 2 == 0:
+        raise ValueError("mask_erode_kernel must be odd and >= 1")
+    if cfg.depth_patch_size < 1 or cfg.depth_patch_size % 2 == 0:
+        raise ValueError("depth_patch_size must be odd and >= 1")
+    if cfg.min_patch_pixels < 1:
+        raise ValueError("min_patch_pixels must be >= 1")
+    if not (0.0 < cfg.min_valid_depth_fraction <= 1.0):
+        raise ValueError("min_valid_depth_fraction must be in (0, 1]")
+    if cfg.max_depth_mad_m <= 0:
+        raise ValueError("max_depth_mad_m must be > 0")
+    if cfg.max_depth_spread_m <= 0:
+        raise ValueError("max_depth_spread_m must be > 0")
     if not (0.0 < cfg.tracker_match_iou <= 1.0):
         raise ValueError("tracker_match_iou must be in (0, 1]")
     if cfg.tracker_confirm_hits < 1:

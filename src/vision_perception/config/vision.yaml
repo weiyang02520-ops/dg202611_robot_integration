@@ -41,8 +41,16 @@ vision_perception_node:
     output_frame_policy: input_optical_header
     sync_tolerance_sec: 0.010
     sync_wait_sec: 0.100  # hold RGB until matching depth or timeout
+    sync_queue_size: 10
+    max_observation_age_sec: 0.500  # drop outputs older than this (source stamp)
     min_depth_m: 0.5
     max_depth_m: 1.5
+    mask_erode_kernel: 3
+    depth_patch_size: 7
+    min_patch_pixels: 25
+    min_valid_depth_fraction: 0.60
+    max_depth_mad_m: 0.020
+    max_depth_spread_m: 0.050
     inference_rate_hz: 5.0
     confidence_threshold: 0.35
     nms_iou_threshold: 0.45
