@@ -38,19 +38,35 @@ does **not** auto-download models and weights must not be committed.
   (`source_session_id`, `backend`, STALE when input age &gt; `input_stale_sec`).
 - Optional `publish_debug_image:=true` → `/dg/vision/debug_image` ≤2 Hz (default off).
 - Default does **not** publish `/dg/vision/objects`, tracking, TF, or cmd_vel.
-- `enable_objects` / `enable_tracking` default **false**. `enable_objects:=true`
-  (v1_ros only) runs V2 depth pairing and publishes `VisionObjectArray`.
-  `enable_tracking:=true` remains rejected.
+- `enable_objects` / `enable_tracking` default **false**. Both `true` only with
+  `mode:=v1_ros` (skeleton/offline reject).
+  - `enable_objects:=true` → V2 depth pairing + `VisionObjectArray`.
+  - `enable_tracking:=true` → V3 per-class IoU tracker; confirmed matches fill
+    `object_id` / `tracking_valid`; STALE / calib change clears tracks.
 - V2 surface sample prefers YOLO-seg masks (`mask_source=yolo_seg`); falls back to
   `bbox_fill`. Offline CLI: `vision_offline_objects` (coverage metrics only;
   `v2_accuracy=BLOCKED` without surface truth).
+- V3 eval scaffold: ID-switch / same-frame uniqueness checks; without identity
+  labels `result=NOT_RUN`, `idf1=BLOCKED` (never invent PASS).
 - `orientation_valid` remains false; `ARM_READY=NO`.
+
+### Module table (pure algorithm → ROS gates)
+
+| Module | Layer | Stage |
+|---|---|---|
+| `image_io` / letterbox | pure | V1 |
+| `onnx_backend` / `postprocess` / `mask_decode` | pure | V1 |
+| `frame_pairing` / `surface_sample` | pure | V2 |
+| `tracker` | pure | V3 |
+| `message_mapping` / `objects_pipeline` | pure | V1–V3 |
+| `vision_node` gates `enable_objects` / `enable_tracking` | ROS | V2 / V3 |
 
 Optional launch helpers:
 
 - `use_webcam:=true` → `vision_webcam_publisher` (V4L2/OpenCV, e.g. laptop camera).
 - `use_fake_image:=true` + `fake_image_path:=/ABS/...` → file/synthetic RGB.
 - `use_fake_depth:=true` + `enable_objects:=true` → fake 32FC1 + CameraInfo → `/objects`.
+- `enable_tracking:=true` (v1_ros only) → tracker session on status / object IDs.
 - `publish_debug_image:=true` → annotated overlay (no GUI).
 
 ### Model contract (owner-prepared artifacts)
@@ -104,7 +120,7 @@ V1 evidence shells live under `src/vision_perception/evidence/templates/`
 - Real-time camera acceptance / bottle-cup photo non-empty detection smoke
 - Navigation, chassis, `cmd_vel`, MODEL bringup
 - Real ZED RGB-D registration / V2 accuracy vs independent surface truth
-- `/objects`, tracking (V2/V3)
+- V3 IDF1 with identity-annotated sequences (scaffold only today)
 - True ONNX golden comparison against committed weights (weights stay out of git)
 
 ## Webcam / WSL / fake-image trial (shortest)

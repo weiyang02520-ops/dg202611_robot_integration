@@ -8,10 +8,12 @@ from pathlib import Path
 from vision_perception.evaluation import (
     EvalBox,
     ImageEvalCase,
+    TrackedIdentity,
     cases_from_offline_batches,
     evaluate_cases,
     evaluate_offline_payload,
     match_same_class_iou,
+    summarize_v3_tracking_scaffold,
 )
 
 
@@ -94,3 +96,35 @@ def test_gt_only_image_counts_as_fn():
     cases = cases_from_offline_batches(batches, annotations)
     metrics = evaluate_cases(cases)
     assert metrics["per_class"]["cup"]["fn"] == 1
+
+
+def test_v3_scaffold_not_run_without_identity_labels():
+    identities = [
+        TrackedIdentity("f0", 0, "trk_0001", "cup", True),
+        TrackedIdentity("f1", 0, "trk_0001", "cup", True),
+    ]
+    summary = summarize_v3_tracking_scaffold(identities)
+    assert summary["result"] == "NOT_RUN"
+    assert summary["idf1"] == "BLOCKED"
+    assert summary["arm_ready"] == "NO"
+    assert summary["has_identity_annotations"] is False
+    assert summary["id_switches"] is None
+    assert summary["same_frame_duplicate_ids"] == 0
+
+
+def test_v3_scaffold_counts_duplicate_ids_and_switches_with_labels():
+    identities = [
+        TrackedIdentity("f0", 0, "trk_a", "cup", True),
+        TrackedIdentity("f0", 1, "trk_a", "cup", True),  # duplicate same frame
+        TrackedIdentity("f1", 0, "trk_b", "cup", True),
+    ]
+    summary = summarize_v3_tracking_scaffold(
+        identities,
+        frame_order=["f0", "f1"],
+        gt_id_by_frame_det={("f0", 0): "gt1", ("f1", 0): "gt1"},
+        has_identity_annotations=True,
+    )
+    assert summary["same_frame_duplicate_ids"] == 1
+    assert summary["id_switches"] == 1
+    assert summary["result"] == "NOT_RUN"
+    assert summary["idf1"] == "BLOCKED"

@@ -26,7 +26,7 @@ class VisionConfig:
     detector_enabled: bool = False
     # V2 gate: default false; true allowed only for mode=v1_ros (depth+/objects).
     enable_objects: bool = False
-    # V3 gate — must stay false until tracking is authorized.
+    # V3 gate: default false; true allowed only for mode=v1_ros (like enable_objects).
     enable_tracking: bool = False
     # Legacy synonym of enable_tracking (kept for existing YAML / tests).
     tracking_enabled: bool = False
@@ -57,6 +57,10 @@ class VisionConfig:
     sync_wait_sec: float = 0.100
     min_depth_m: float = 0.5
     max_depth_m: float = 1.5
+    # Plan §8 V3 tracker defaults (used only when enable_tracking=true).
+    tracker_match_iou: float = 0.30
+    tracker_confirm_hits: int = 3
+    tracker_lost_timeout_sec: float = 0.70
     video_device: int = 0
     image_frame_id: str = "webcam_optical_frame"
     camera_contract: str = CAMERA_CONTRACT_NOT_RUN
@@ -177,6 +181,15 @@ def vision_config_from_mapping(raw: Mapping[str, Any] | None = None) -> VisionCo
         sync_wait_sec=float(data.get("sync_wait_sec", DEFAULTS.sync_wait_sec)),
         min_depth_m=float(data.get("min_depth_m", DEFAULTS.min_depth_m)),
         max_depth_m=float(data.get("max_depth_m", DEFAULTS.max_depth_m)),
+        tracker_match_iou=float(
+            data.get("tracker_match_iou", DEFAULTS.tracker_match_iou)
+        ),
+        tracker_confirm_hits=int(
+            data.get("tracker_confirm_hits", DEFAULTS.tracker_confirm_hits)
+        ),
+        tracker_lost_timeout_sec=float(
+            data.get("tracker_lost_timeout_sec", DEFAULTS.tracker_lost_timeout_sec)
+        ),
         video_device=int(data.get("video_device", DEFAULTS.video_device)),
         image_frame_id=str(data.get("image_frame_id", DEFAULTS.image_frame_id)),
         camera_contract=str(data.get("camera_contract", DEFAULTS.camera_contract)),
@@ -226,16 +239,23 @@ def validate_vision_config(cfg: VisionConfig) -> None:
         raise ValueError("sync_tolerance_sec must be > 0")
     if cfg.sync_wait_sec < 0:
         raise ValueError("sync_wait_sec must be >= 0")
-    # V3 tracking is not authorized.
-    if cfg.enable_tracking or cfg.tracking_enabled:
-        raise ValueError(
-            "enable_tracking/tracking_enabled=true is not authorized yet "
-            "(no tracker in this stage)"
-        )
+    if not (0.0 < cfg.tracker_match_iou <= 1.0):
+        raise ValueError("tracker_match_iou must be in (0, 1]")
+    if cfg.tracker_confirm_hits < 1:
+        raise ValueError("tracker_confirm_hits must be >= 1")
+    if cfg.tracker_lost_timeout_sec <= 0:
+        raise ValueError("tracker_lost_timeout_sec must be > 0")
     if cfg.mode == "skeleton":
-        if cfg.detector_enabled or cfg.publish_debug_image or cfg.enable_objects:
+        if (
+            cfg.detector_enabled
+            or cfg.publish_debug_image
+            or cfg.enable_objects
+            or cfg.enable_tracking
+            or cfg.tracking_enabled
+        ):
             raise ValueError(
-                "skeleton mode forbids enabling detector/debug/enable_objects"
+                "skeleton mode forbids enabling detector/debug/enable_objects/"
+                "enable_tracking"
             )
         if cfg.backend != "unconfigured":
             raise ValueError("skeleton mode requires backend=unconfigured")
@@ -244,6 +264,11 @@ def validate_vision_config(cfg: VisionConfig) -> None:
             raise ValueError(
                 "enable_objects=true is only allowed for mode=v1_ros "
                 "(offline CLI stays 2D-only)"
+            )
+        if cfg.enable_tracking or cfg.tracking_enabled:
+            raise ValueError(
+                "enable_tracking=true is only allowed for mode=v1_ros "
+                "(offline CLI stays 2D-only; use pure tracker helpers for sequences)"
             )
         if cfg.backend != "onnxruntime_cpu":
             raise ValueError("offline mode requires backend=onnxruntime_cpu")
@@ -277,10 +302,15 @@ def validate_vision_config(cfg: VisionConfig) -> None:
             raise ValueError(
                 "v1_ros must not claim a ZED camera_contract; use DEV_WEBCAM_ONLY / NOT_ZED"
             )
-    elif cfg.enable_objects:
-        raise ValueError(
-            "enable_objects=true is only allowed for mode=v1_ros"
-        )
+    else:
+        if cfg.enable_objects:
+            raise ValueError(
+                "enable_objects=true is only allowed for mode=v1_ros"
+            )
+        if cfg.enable_tracking or cfg.tracking_enabled:
+            raise ValueError(
+                "enable_tracking=true is only allowed for mode=v1_ros"
+            )
 
 
 def load_model_manifest(path: str) -> ModelManifest:

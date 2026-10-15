@@ -68,6 +68,9 @@ def compose_v1_ros_diagnostic(
     calibration_id: str = "",
     enable_objects: bool = False,
     object_output_active: bool = False,
+    enable_tracking: bool = False,
+    tracking_active: bool = False,
+    tracking_session_id: str = "",
     last_objects_count: int = 0,
     last_position_valid_count: int = 0,
     last_pair_reason: str = "",
@@ -75,7 +78,7 @@ def compose_v1_ros_diagnostic(
     depth_frames_received: int = 0,
     camera_info_received: bool = False,
 ) -> Tuple[bytes, str, Dict[str, str]]:
-    """Return (level_byte, message, key/value fields) for v1_ros(+optional V2) status."""
+    """Return (level_byte, message, key/value fields) for v1_ros(+optional V2/V3) status."""
     error = (last_worker_error or "").strip()
     stale = is_input_stale(last_input_age_sec, input_stale_sec)
 
@@ -91,7 +94,12 @@ def compose_v1_ros_diagnostic(
         message = "V2_OBJECTS_NO_CALIBRATION"
     else:
         level = LEVEL_OK
-        message = "V2_OBJECTS_DEV" if enable_objects else "V1_ROS_DEV_WEBCAM"
+        if enable_tracking:
+            message = "V3_TRACKING_DEV"
+        elif enable_objects:
+            message = "V2_OBJECTS_DEV"
+        else:
+            message = "V1_ROS_DEV_WEBCAM"
 
     age_text = (
         f"{float(last_input_age_sec):.3f}" if last_input_age_sec is not None else ""
@@ -99,6 +107,7 @@ def compose_v1_ros_diagnostic(
     skew_text = (
         f"{float(last_pair_skew_sec):.6f}" if last_pair_skew_sec is not None else ""
     )
+    tracking_on = bool(enable_tracking or tracking_active)
     fields = {
         "mode": "v1_ros",
         "implementation_status": message,
@@ -109,9 +118,11 @@ def compose_v1_ros_diagnostic(
         "source_session_id": source_session_id,
         "calibration_id": calibration_id,
         "inference_active": "true",
-        "tracking_active": "false",
+        "tracking_active": "true" if tracking_on else "false",
+        "tracking_session_id": str(tracking_session_id or "") if tracking_on else "",
         "object_output_active": "true" if object_output_active else "false",
         "enable_objects": "true" if enable_objects else "false",
+        "enable_tracking": "true" if enable_tracking else "false",
         "control_output_active": "false",
         "arm_ready": "NO",
         "publish_debug_image": "true" if publish_debug_image else "false",

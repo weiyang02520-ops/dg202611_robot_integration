@@ -1,14 +1,18 @@
-"""Build VisionObject batches from 2D detections + paired depth (V2)."""
+"""Build VisionObject batches from 2D detections + paired depth (V2).
+
+Optional V3: apply_track_assignments fills object_id / tracking_valid.
+"""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import List, Optional, Sequence, Tuple
+from dataclasses import dataclass, replace
+from typing import List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 
 from vision_perception.depth_io import CameraCalibration, DepthFrame
 from vision_perception.surface_sample import sample_visible_surface
+from vision_perception.tracker import TrackAssignment, assignments_by_detection_index
 from vision_perception.types import (
     POSITION_REFERENCE,
     Detection,
@@ -201,4 +205,38 @@ def build_object_batch(
         pair_reason=pair_reason,
         calibration_id=calibration.calibration_id,
         mask_source=batch_mask_source,
+    )
+
+
+def apply_track_assignments(
+    batch: ObjectBatch,
+    assignments: Sequence[TrackAssignment],
+    *,
+    tracking_session_id: str,
+) -> ObjectBatch:
+    """Attach V3 identity fields to each Object3D (by detection_index).
+
+    Unmatched / tentative detections keep empty object_id and tracking_valid=false.
+    Does not invent historical boxes; only annotates current-frame objects.
+    """
+    by_index: Mapping[int, TrackAssignment] = assignments_by_detection_index(assignments)
+    updated: List[Object3D] = []
+    for obj in batch.objects:
+        assignment = by_index.get(int(obj.detection_index))
+        if assignment is None:
+            updated.append(
+                replace(obj, tracking_valid=False, object_id="")
+            )
+        else:
+            updated.append(
+                replace(
+                    obj,
+                    tracking_valid=bool(assignment.tracking_valid),
+                    object_id=str(assignment.object_id or ""),
+                )
+            )
+    return replace(
+        batch,
+        objects=tuple(updated),
+        tracking_session_id=str(tracking_session_id or ""),
     )

@@ -9,7 +9,7 @@ precision denominators via background frame counts alone.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from vision_perception.postprocess import box_iou_xyxy
 from vision_perception.types import ALLOWED_CLASSES
@@ -312,5 +312,117 @@ def summarize_v2_object_coverage(
         "note": (
             "Coverage only. Independent surface-point truth required for "
             "V2_ACCURACY; synthetic depth must not be marked PASS."
+        ),
+    }
+
+
+@dataclass(frozen=True)
+class TrackedIdentity:
+    """One predicted identity on a frame (for V3 scaffolding checks)."""
+
+    frame_id: str
+    detection_index: int
+    object_id: str
+    class_name: str = ""
+    tracking_valid: bool = False
+
+
+def count_same_frame_duplicate_ids(
+    identities: Sequence[TrackedIdentity],
+) -> int:
+    """Count frames where the same non-empty object_id appears more than once."""
+    by_frame: Dict[str, List[str]] = {}
+    for item in identities:
+        oid = str(item.object_id or "").strip()
+        if not oid or not item.tracking_valid:
+            continue
+        by_frame.setdefault(str(item.frame_id), []).append(oid)
+    duplicates = 0
+    for ids in by_frame.values():
+        seen: set[str] = set()
+        for oid in ids:
+            if oid in seen:
+                duplicates += 1
+            else:
+                seen.add(oid)
+    return duplicates
+
+
+def count_id_switches(
+    frame_order: Sequence[str],
+    gt_id_by_frame_det: Mapping[Tuple[str, int], str],
+    pred_id_by_frame_det: Mapping[Tuple[str, int], str],
+) -> int:
+    """Count identity switches along a GT identity timeline (synthetic scaffold).
+
+    For each ground-truth identity, walk frames in order. When consecutive
+    matched predictions disagree on object_id, count one switch. Missing
+    identity annotations → caller must report NOT_RUN rather than IDF1 PASS.
+    """
+    # Invert GT: identity -> ordered (frame, det) appearances
+    gt_timeline: Dict[str, List[Tuple[str, int]]] = {}
+    for frame_id in frame_order:
+        for (fid, det_idx), gt_id in gt_id_by_frame_det.items():
+            if fid != frame_id:
+                continue
+            gt_timeline.setdefault(str(gt_id), []).append((fid, int(det_idx)))
+
+    switches = 0
+    for _gt_id, appearances in gt_timeline.items():
+        prev_pred: Optional[str] = None
+        for frame_id, det_idx in appearances:
+            pred = str(pred_id_by_frame_det.get((frame_id, det_idx), "") or "")
+            if not pred:
+                prev_pred = None
+                continue
+            if prev_pred is not None and pred != prev_pred:
+                switches += 1
+            prev_pred = pred
+    return switches
+
+
+def summarize_v3_tracking_scaffold(
+    identities: Sequence[TrackedIdentity],
+    *,
+    frame_order: Optional[Sequence[str]] = None,
+    gt_id_by_frame_det: Optional[Mapping[Tuple[str, int], str]] = None,
+    has_identity_annotations: bool = False,
+) -> Dict[str, Any]:
+    """V3 tracking scaffold (plan §10.3). Never claims IDF1 PASS without labels.
+
+    Without identity annotations ``idf1`` stays blocked and ``result=NOT_RUN``.
+    Always reports same-frame ID uniqueness violations on synthetic sequences.
+    """
+    n = len(identities)
+    n_valid = sum(1 for i in identities if i.tracking_valid and i.object_id)
+    duplicate_ids = count_same_frame_duplicate_ids(identities)
+    switches = 0
+    if (
+        has_identity_annotations
+        and frame_order is not None
+        and gt_id_by_frame_det is not None
+    ):
+        pred_map = {
+            (str(i.frame_id), int(i.detection_index)): str(i.object_id)
+            for i in identities
+            if i.tracking_valid and i.object_id
+        }
+        switches = count_id_switches(frame_order, gt_id_by_frame_det, pred_map)
+
+    return {
+        "stage": "V3_TRACKING_SCAFFOLD",
+        "result": "NOT_RUN",
+        "idf1": "BLOCKED",
+        "arm_ready": "NO",
+        "camera_contract": "NOT_RUN",
+        "identities": int(n),
+        "tracking_valid_with_id": int(n_valid),
+        "same_frame_duplicate_ids": int(duplicate_ids),
+        "id_switches": int(switches) if has_identity_annotations else None,
+        "has_identity_annotations": bool(has_identity_annotations),
+        "note": (
+            "Scaffold only. IDF1 / formal ID-switch acceptance requires "
+            "identity-annotated sequences; do not mark PASS from synthetic "
+            "crossing cups alone."
         ),
     }

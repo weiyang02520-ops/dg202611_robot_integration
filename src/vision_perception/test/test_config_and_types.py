@@ -30,6 +30,9 @@ def test_skeleton_defaults_validate():
     assert cfg.publish_debug_image is False
     assert cfg.enable_objects is False
     assert cfg.enable_tracking is False
+    assert cfg.tracker_match_iou == 0.30
+    assert cfg.tracker_confirm_hits == 3
+    assert cfg.tracker_lost_timeout_sec == 0.70
     assert cfg.tracking_enabled is False
     assert cfg.debug_image_topic == "/dg/vision/debug_image"
     assert cfg.debug_image_max_hz == 2.0

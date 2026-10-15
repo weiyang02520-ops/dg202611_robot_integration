@@ -137,12 +137,15 @@ def test_placeholder_object_array_observation_keys_and_arm_ready_no():
     assert payload["objects"][0]["detection_index"] == 0
 
 
-def test_enable_objects_and_tracking_default_false_and_reject_true():
+def test_enable_objects_and_tracking_default_false_and_reject_outside_v1_ros():
     cfg = vision_config_from_mapping(None)
     assert cfg.enable_objects is False
     assert cfg.enable_tracking is False
     assert cfg.tracking_enabled is False
-    # Without mode=v1_ros, enable_objects=true is rejected (skeleton default).
+    assert cfg.tracker_match_iou == 0.30
+    assert cfg.tracker_confirm_hits == 3
+    assert cfg.tracker_lost_timeout_sec == 0.70
+    # Without mode=v1_ros, enable_objects/tracking=true are rejected (skeleton default).
     with pytest.raises(ValueError, match="enable_objects"):
         vision_config_from_mapping({"enable_objects": True})
     with pytest.raises(ValueError, match="enable_tracking"):
@@ -158,7 +161,7 @@ def test_enable_tracking_alias_disagrees_raises():
         )
 
 
-def test_v1_ros_allows_enable_objects_default_still_false(tmp_path: Path):
+def test_v1_ros_allows_enable_objects_and_tracking_default_still_false(tmp_path: Path):
     base = {
         "mode": "v1_ros",
         "backend": "onnxruntime_cpu",
@@ -169,9 +172,17 @@ def test_v1_ros_allows_enable_objects_default_still_false(tmp_path: Path):
     }
     cfg = vision_config_from_mapping(base)
     assert cfg.enable_objects is False
+    assert cfg.enable_tracking is False
     cfg2 = vision_config_from_mapping({**base, "enable_objects": True})
     assert cfg2.enable_objects is True
     assert cfg2.objects_topic == "/dg/vision/objects"
+    cfg3 = vision_config_from_mapping({**base, "enable_tracking": True})
+    assert cfg3.enable_tracking is True
+    assert cfg3.tracking_enabled is True
+    cfg4 = vision_config_from_mapping(
+        {**base, "enable_objects": True, "enable_tracking": True}
+    )
+    assert cfg4.enable_objects is True and cfg4.enable_tracking is True
 
 
 def test_v1_evidence_templates_exist():
@@ -208,3 +219,19 @@ def test_v2_position_evidence_templates_exist():
     assert "sync_wait_sec" in params
     assert "BLOCKED" in protocol
     assert "independent_surface" in protocol
+
+
+def test_v3_tracking_evidence_templates_exist():
+    root = Path(__file__).resolve().parents[1] / "evidence" / "templates" / "V3_TRACKING"
+    assert root.is_dir()
+    meta = (root / "metadata.json.template").read_text(encoding="utf-8")
+    params = (root / "parameters.yaml.template").read_text(encoding="utf-8")
+    protocol = (root / "acceptance_protocol.yaml.template").read_text(encoding="utf-8")
+    assert '"result": "NOT_RUN"' in meta
+    assert '"idf1": "BLOCKED"' in meta
+    assert '"arm_ready": "NO"' in meta
+    assert "enable_tracking: true" in params
+    assert "tracker_match_iou: 0.30" in params
+    assert "tracker_confirm_hits: 3" in params
+    assert "NOT_RUN" in protocol
+    assert "identity_annotations_required" in protocol

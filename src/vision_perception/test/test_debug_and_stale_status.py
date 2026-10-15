@@ -72,6 +72,32 @@ def test_stale_status_when_input_age_exceeds_threshold():
     assert fields["backend"] == "onnxruntime_cpu"
     assert fields["arm_ready"] == "NO"
     assert fields["object_output_active"] == "false"
+    assert fields["tracking_active"] == "false"
+    assert fields["tracking_session_id"] == ""
+    assert fields["enable_tracking"] == "false"
+
+
+def test_tracking_active_status_fields_when_enabled():
+    level, message, fields = compose_v1_ros_diagnostic(
+        frames_received=2,
+        frames_processed=2,
+        frames_dropped=0,
+        last_observation_id=2,
+        last_detection_count=1,
+        source_session_id="sess-trk",
+        backend="onnxruntime_cpu",
+        last_input_age_sec=0.1,
+        input_stale_sec=1.0,
+        enable_tracking=True,
+        tracking_active=True,
+        tracking_session_id="trk-session-1",
+    )
+    assert level == LEVEL_OK
+    assert message == "V3_TRACKING_DEV"
+    assert fields["tracking_active"] == "true"
+    assert fields["enable_tracking"] == "true"
+    assert fields["tracking_session_id"] == "trk-session-1"
+    assert fields["arm_ready"] == "NO"
 
 
 def test_worker_error_outranks_stale():

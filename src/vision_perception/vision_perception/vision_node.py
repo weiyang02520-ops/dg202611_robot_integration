@@ -6,6 +6,8 @@ v1_ros: subscribe sensor_msgs/Image, run DetectionEngine, publish
 Optional enable_objects:=true (default false): subscribe depth + CameraInfo,
         wait up to sync_wait_sec then pair ≤ sync_tolerance_sec, publish
         VisionObjectArray on /dg/vision/objects.
+Optional enable_tracking:=true (default false, v1_ros only): short-horizon
+        2D IoU tracker; fills object_id / tracking_valid when objects on.
 Optional debug_image (default off, ≤2 Hz). mode:=v1 (legacy) remains rejected.
 camera_contract for v1_ros: DEV_WEBCAM_ONLY / NOT_ZED. ARM_READY=NO.
 Does not start ZED SDK or publish grasp / cmd_vel.
@@ -44,7 +46,7 @@ from vision_perception.message_mapping import (
     try_build_vision_detection_array_msg,
     try_build_vision_object_array_msg,
 )
-from vision_perception.objects_pipeline import build_object_batch
+from vision_perception.objects_pipeline import apply_track_assignments, build_object_batch
 from vision_perception.pipeline import DetectionEngine
 from vision_perception.ros_image_bridge import (
     DecodedImage,
@@ -57,6 +59,7 @@ from vision_perception.status_fields import (
     compose_v1_ros_diagnostic,
     is_input_stale,
 )
+from vision_perception.tracker import MultiObjectTracker, stamp_sec_from_parts
 
 
 @dataclass
@@ -105,6 +108,9 @@ class VisionPerceptionNode(Node):
             "enable_objects": False,
             "enable_tracking": False,
             "tracking_enabled": False,
+            "tracker_match_iou": 0.30,
+            "tracker_confirm_hits": 3,
+            "tracker_lost_timeout_sec": 0.70,
             "publish_debug_image": False,
             "debug_image_max_hz": 2.0,
             "input_stale_sec": 1.0,
@@ -154,6 +160,9 @@ class VisionPerceptionNode(Node):
         self._publish_debug = False
         self._enable_objects = False
         self._object_output_active = False
+        self._enable_tracking = False
+        self._tracker: Optional[MultiObjectTracker] = None
+        self._tracking_session_id = ""
         self._min_depth_m = 0.5
         self._max_depth_m = 1.5
         self._depth_topic = ""
@@ -222,6 +231,9 @@ class VisionPerceptionNode(Node):
             "sync_wait_sec",
             "min_depth_m",
             "max_depth_m",
+            "tracker_match_iou",
+            "tracker_confirm_hits",
+            "tracker_lost_timeout_sec",
             "video_device",
             "image_frame_id",
             "camera_contract",
@@ -249,7 +261,8 @@ class VisionPerceptionNode(Node):
         self.get_logger().warning(
             "SKELETON_ONLY: no camera subscriptions, inference, object output or control; "
             "use mode:=v1_ros for DEV webcam/Image detection; "
-            "enable_objects:=true only with v1_ros for V2 /objects"
+            "enable_objects:=true only with v1_ros for V2 /objects; "
+            "enable_tracking:=true only with v1_ros for V3 2D tracker"
         )
 
     def _init_v1_ros(self) -> None:
@@ -283,10 +296,27 @@ class VisionPerceptionNode(Node):
             VisionDetectionArray, detections_topic, 10
         )
         self._enable_objects = bool(cfg.enable_objects)
+        self._enable_tracking = bool(cfg.enable_tracking or cfg.tracking_enabled)
         self._min_depth_m = float(cfg.min_depth_m)
         self._max_depth_m = float(cfg.max_depth_m)
         self._depth_topic = str(cfg.depth_topic)
         self._camera_info_topic = str(cfg.camera_info_topic)
+
+        if self._enable_tracking:
+            self._tracker = MultiObjectTracker(
+                match_iou=float(cfg.tracker_match_iou),
+                confirm_hits=int(cfg.tracker_confirm_hits),
+                lost_timeout_sec=float(cfg.tracker_lost_timeout_sec),
+            )
+            self._tracking_session_id = self._tracker.tracking_session_id
+            self.get_logger().warning(
+                "V3 enable_tracking: per-class IoU tracker active "
+                f"(match_iou={cfg.tracker_match_iou}, "
+                f"confirm_hits={cfg.tracker_confirm_hits}, "
+                f"lost_timeout_sec={cfg.tracker_lost_timeout_sec}); "
+                "object_id only after confirmed match; ARM_READY=NO; "
+                "no ReID / no predicted boxes as measurements"
+            )
 
         if self._enable_objects:
             try:
@@ -328,7 +358,7 @@ class VisionPerceptionNode(Node):
                 f"sync_tolerance_sec={cfg.sync_tolerance_sec}, "
                 f"publish {objects_topic}; unpaired/missing calib → "
                 "position_valid=false (no forged 3D); ARM_READY=NO; "
-                "orientation_valid=false; no tracking/grasp"
+                "orientation_valid=false; no grasp"
             )
 
         self._publish_debug = bool(cfg.publish_debug_image)
@@ -354,18 +384,22 @@ class VisionPerceptionNode(Node):
         self._image_sub = self.create_subscription(
             Image, cfg.rgb_topic, self._on_image, 10
         )
-        self._implementation_status = (
-            "V2_OBJECTS_DEV" if self._enable_objects else "V1_ROS_DEV_WEBCAM"
-        )
+        if self._enable_tracking:
+            self._implementation_status = "V3_TRACKING_DEV"
+        elif self._enable_objects:
+            self._implementation_status = "V2_OBJECTS_DEV"
+        else:
+            self._implementation_status = "V1_ROS_DEV_WEBCAM"
         self._camera_contract = str(cfg.camera_contract)
         self._inference_active = True
         self._camera_subscriptions_active = True
         objects_note = (
             f"; objects={cfg.objects_topic}" if self._enable_objects else "; no /objects"
         )
+        tracking_note = "; tracking=on" if self._enable_tracking else "; tracking=off"
         self.get_logger().warning(
             f"v1_ros DEV_WEBCAM_ONLY / NOT_ZED: subscribing {cfg.rgb_topic}, "
-            f"publishing {detections_topic}{objects_note}; "
+            f"publishing {detections_topic}{objects_note}{tracking_note}; "
             "no ZED SDK start, no cmd_vel; "
             "empty detections=[] is healthy for blank fake frames; ARM_READY=NO"
         )
@@ -392,14 +426,17 @@ class VisionPerceptionNode(Node):
         with self._calib_lock:
             prev = self._calibration
             if prev is not None and prev.calibration_id != calib.calibration_id:
-                # Calibration change: clear depth pairing; new session not forced here
-                # (RGB session stays; 3D stays invalid until consistent again).
+                # Calibration change: clear depth pairing + tracker session.
                 if self._depth_buffer is not None:
                     self._depth_buffer.clear()
                 if self._sync_gate is not None:
                     self._sync_gate.clear()
+                if self._tracker is not None:
+                    self._tracking_session_id = self._tracker.reset_session(
+                        reason="calibration_change"
+                    )
                 self.get_logger().warning(
-                    "CameraInfo calibration_id changed; depth buffer cleared"
+                    "CameraInfo calibration_id changed; depth buffer and tracks cleared"
                 )
             self._calibration = calib
             self._camera_info_received = True
@@ -507,6 +544,20 @@ class VisionPerceptionNode(Node):
         self._detections_pub.publish(message)
         self._maybe_publish_debug(decoded.rgb, batch)
 
+        track_assignments = ()
+        tracking_session_id = ""
+        if self._enable_tracking and self._tracker is not None:
+            stamp = stamp_sec_from_parts(
+                batch.key.source_stamp_sec, batch.key.source_stamp_nanosec
+            )
+            track_assignments = self._tracker.update(
+                batch.detections,
+                stamp_sec=stamp,
+                calibration_id=calib_id or batch.key.calibration_id,
+            )
+            tracking_session_id = self._tracker.tracking_session_id
+            self._tracking_session_id = tracking_session_id
+
         if self._enable_objects and self._objects_pub is not None:
             objects = build_object_batch(
                 batch,
@@ -516,8 +567,14 @@ class VisionPerceptionNode(Node):
                 pair_reason=pair_reason,
                 min_depth_m=self._min_depth_m,
                 max_depth_m=self._max_depth_m,
-                tracking_session_id="",
+                tracking_session_id=tracking_session_id,
             )
+            if track_assignments:
+                objects = apply_track_assignments(
+                    objects,
+                    track_assignments,
+                    tracking_session_id=tracking_session_id,
+                )
             self._last_objects_count = len(objects.objects)
             self._last_position_valid_count = sum(
                 1 for o in objects.objects if o.position_valid
@@ -566,8 +623,10 @@ class VisionPerceptionNode(Node):
                 "source_session_id": "",
                 "inference_active": "false",
                 "tracking_active": "false",
+                "tracking_session_id": "",
                 "object_output_active": "false",
                 "enable_objects": "false",
+                "enable_tracking": "false",
                 "control_output_active": "false",
                 "arm_ready": "NO",
                 "publish_debug_image": "false",
@@ -582,13 +641,17 @@ class VisionPerceptionNode(Node):
             session_id = (
                 self._engine.source_session_id if self._engine is not None else ""
             )
-            # STALE: drop pending frames once; do not keep replaying old work.
+            # STALE: drop pending frames + tracks once; do not keep replaying old work.
             if (
                 is_input_stale(age, self._input_stale_sec)
                 and self._worker is not None
                 and not self._stale_cleared
             ):
                 self._worker.clear_pending()
+                if self._tracker is not None:
+                    self._tracking_session_id = self._tracker.reset_session(
+                        reason="stale"
+                    )
                 self._stale_cleared = True
             level, msg, fields = compose_v1_ros_diagnostic(
                 frames_received=self._frames_received,
@@ -611,6 +674,9 @@ class VisionPerceptionNode(Node):
                 calibration_id=self._last_calibration_id,
                 enable_objects=self._enable_objects,
                 object_output_active=self._object_output_active,
+                enable_tracking=self._enable_tracking,
+                tracking_active=self._enable_tracking,
+                tracking_session_id=self._tracking_session_id,
                 last_objects_count=self._last_objects_count,
                 last_position_valid_count=self._last_position_valid_count,
                 last_pair_reason=self._last_pair_reason,
@@ -635,6 +701,9 @@ class VisionPerceptionNode(Node):
             self._worker.clear_pending()
             self._worker.stop()
             self._worker = None
+        if self._tracker is not None:
+            self._tracker.clear()
+            self._tracker = None
         if self._depth_buffer is not None:
             self._depth_buffer.clear()
         super().destroy_node()

@@ -1,7 +1,8 @@
 """Vision launch: default skeleton; optional v1_ros + local webcam/fake Image.
 
 Optional V2 offline smoke: use_fake_depth:=true + enable_objects:=true
-(default false). mode:=v1 remains unsupported (node rejects). ZED is not started.
+(default false). Optional V3: enable_tracking:=true (v1_ros only, default false).
+mode:=v1 remains unsupported (node rejects). ZED is not started.
 camera_contract for v1_ros is DEV_WEBCAM_ONLY / NOT_ZED.
 """
 
@@ -103,6 +104,9 @@ def _launch_setup(context, *args, **kwargs):
                     "enable_objects": ParameterValue(
                         LaunchConfiguration("enable_objects"), value_type=bool
                     ),
+                    "enable_tracking": ParameterValue(
+                        LaunchConfiguration("enable_tracking"), value_type=bool
+                    ),
                 },
             ],
         ),
@@ -194,6 +198,14 @@ def generate_launch_description():
             description=(
                 "If true (v1_ros only), run V2 depth pairing and publish "
                 "VisionObjectArray on /dg/vision/objects. Default false."
+            ),
+        ),
+        DeclareLaunchArgument(
+            "enable_tracking",
+            default_value="false",
+            description=(
+                "If true (v1_ros only), run V3 short-horizon 2D IoU tracker. "
+                "Default false. Fills object_id/tracking_valid when objects on."
             ),
         ),
         OpaqueFunction(function=_launch_setup),

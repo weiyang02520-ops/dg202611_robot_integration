@@ -13,12 +13,24 @@ Independent manipulation-vision ROS2 package (arm-independent).
 | Optional `vision_fake_image_publisher` | Synthetic/file RGB for no-camera smoke tests (`use_fake_image:=true`). |
 | Optional `vision_fake_depth_publisher` | Constant 32FC1 depth + synthetic CameraInfo (`use_fake_depth:=true`). Mirrors RGB stamps. |
 | Optional `enable_objects:=true` (v1_ros only) | V2: pair depth+CameraInfo, publish `VisionObjectArray` on `/dg/vision/objects`. **Default false.** |
+| Optional `enable_tracking:=true` (v1_ros only) | V3: short-horizon per-class IoU tracker. **Default false.** Confirmed matches fill `object_id` / `tracking_valid` on objects. |
 | Offline CLI `vision_offline_detect` | File → JSON/CSV. No ROS camera claim. |
 | Offline CLI `vision_offline_objects` | RGB + depth `.npy` + synthetic pinhole → objects JSON/CSV (coverage only). |
 | V2 mask | YOLO-seg contour when `output1` present; else `bbox_fill` fallback. |
 | Legacy `mode:=v1` | **Rejected** (non-zero exit). |
 | ZED / production camera contract | **Not authorized here.** `camera_contract=DEV_WEBCAM_ONLY / NOT_ZED` for v1_ros. Node may *subscribe* to ZED topic names but never starts the SDK. |
-| V3 tracking / arm | **Not authorized.** `enable_tracking:=false` (true rejected). `ARM_READY=NO`. `orientation_valid` stays false through V3. |
+| Arm / grasp | **Not authorized.** `ARM_READY=NO`. `orientation_valid` stays false through V3. |
+
+### Module stages (V0–V3)
+
+| Stage | Gate | Core modules | Default |
+|---|---|---|---|
+| V0 skeleton | `mode:=skeleton` | status only | on |
+| V1 detect | `mode:=v1_ros` / offline CLI | image_io, onnx_backend, postprocess, message_mapping | explicit |
+| V2 objects | `enable_objects:=true` | frame_pairing, surface_sample, objects_pipeline | **false** |
+| V3 track | `enable_tracking:=true` | tracker (+ objects fields when V2 on) | **false** |
+
+Real ZED / V2 accuracy / V3 IDF1 remain **NOT_RUN** (no PASS from synthetic smoke).
 
 ### 未做项（NOT_RUN — 勿记 PASS）
 
@@ -28,11 +40,11 @@ Independent manipulation-vision ROS2 package (arm-independent).
 | 导航 / 底盘 / `cmd_vel` / MODEL bringup | Out of scope; must not change |
 | 实机 ZED 深度配准 / 透明物体三维 | Needs real ZED stream + fixture ground truth; fake depth only checks plumbing |
 | V2 三维精度验收（median≤30 mm 等） | Needs independent surface-point truth (plan §10.2); synthetic plane ≠ PASS |
-| V3 跟踪 | Needs separate auth; `enable_tracking` must stay false |
+| V3 IDF1 / 身份标注验收 | Needs identity-annotated sequences; scaffold reports `result=NOT_RUN` / `idf1=BLOCKED` |
 | 真 ONNX 黄金样例比对 | Weights stay out of git; synthetic postprocess goldens cover format only |
 
 Evidence empty shells (package-local, works in isolated two-package sync):
-`src/vision_perception/evidence/templates/{V1_OFFLINE,V1_ROS,V2_POSITION}/`
+`src/vision_perception/evidence/templates/{V1_OFFLINE,V1_ROS,V2_POSITION,V3_TRACKING}/`
 (also installed under `share/vision_perception/evidence/templates/`).
 
 **Hard rules:** the node never auto-downloads weights; `.onnx` / `.pt` must stay out of git (see root `.gitignore`). License of upstream YOLO/COCO weights is separate from this repo — review before use; do not publish or redistribute weights until cleared.

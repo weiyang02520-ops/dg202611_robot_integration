@@ -410,17 +410,36 @@ def test_enable_objects_still_rejected_outside_v1_ros():
         )
 
 
-def test_enable_tracking_still_rejected_with_objects(tmp_path):
+def test_enable_tracking_allowed_with_objects_on_v1_ros(tmp_path):
+    cfg = vision_config_from_mapping(
+        {
+            "mode": "v1_ros",
+            "backend": "onnxruntime_cpu",
+            "model_path": str(tmp_path / "m.onnx"),
+            "model_manifest_path": str(tmp_path / "m.json"),
+            "detector_enabled": True,
+            "camera_contract": "DEV_WEBCAM_ONLY / NOT_ZED",
+            "enable_objects": True,
+            "enable_tracking": True,
+            "depth_topic": "/dg/vision/fake/depth",
+            "camera_info_topic": "/dg/vision/fake/camera_info",
+        }
+    )
+    assert cfg.enable_tracking is True
+    assert cfg.enable_objects is True
+    assert cfg.tracker_match_iou == 0.30
+
+
+def test_enable_tracking_rejected_on_skeleton_and_offline():
+    with pytest.raises(ValueError, match="enable_tracking"):
+        vision_config_from_mapping({"enable_tracking": True})
     with pytest.raises(ValueError, match="enable_tracking"):
         vision_config_from_mapping(
             {
-                "mode": "v1_ros",
+                "mode": "offline",
                 "backend": "onnxruntime_cpu",
-                "model_path": str(tmp_path / "m.onnx"),
-                "model_manifest_path": str(tmp_path / "m.json"),
-                "detector_enabled": True,
-                "camera_contract": "DEV_WEBCAM_ONLY / NOT_ZED",
-                "enable_objects": True,
+                "model_path": "/tmp/m.onnx",
+                "model_manifest_path": "/tmp/m.json",
                 "enable_tracking": True,
             }
         )

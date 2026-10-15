@@ -14,10 +14,13 @@ vision_perception_node:
     model_manifest_path: ""
 
     # V2: enable_objects default false. true only with mode:=v1_ros (depth+/objects).
-    # V3: enable_tracking stays false (true rejected).
+    # V3: enable_tracking default false. true only with mode:=v1_ros (2D IoU tracker).
     enable_objects: false
     enable_tracking: false
     tracking_enabled: false  # legacy synonym of enable_tracking
+    tracker_match_iou: 0.30
+    tracker_confirm_hits: 3
+    tracker_lost_timeout_sec: 0.70
 
     # Dev webcam default RGB. Depth/CameraInfo names are configurable subscribers
     # only (ZED defaults below are topic names, not a ZED camera_contract).

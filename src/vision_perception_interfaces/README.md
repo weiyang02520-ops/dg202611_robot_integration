@@ -11,4 +11,6 @@ Contract details: [`INTERFACE_CONTRACT.md`](INTERFACE_CONTRACT.md) (also install
 under `share/vision_perception_interfaces/`).
 
 `enable_objects` / `enable_tracking` live in the `vision_perception` node config
-and default to **false**. Enabling objects does not enable tracking or arm motion.
+and default to **false** (`true` only with `mode:=v1_ros`). Enabling objects does
+not enable tracking or arm motion; enabling tracking alone does not publish
+`/objects` until `enable_objects` is also true.

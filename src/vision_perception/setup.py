@@ -31,7 +31,7 @@ setup(
     zip_safe=True,
     maintainer="liaojingwu20041031",
     maintainer_email="206929594+liaojingwu20041031@users.noreply.github.com",
-    description="Independent manipulation-vision: skeleton, offline V1, v1_ros, optional V2 objects.",
+    description="Independent manipulation-vision: skeleton, offline V1, v1_ros, optional V2 objects / V3 tracking.",
     license="Apache-2.0",
     tests_require=["pytest"],
 )
