@@ -1,6 +1,6 @@
 # VISION_INTEGRATION_PLAN：独立操作视觉详细实施规格
 
-版本：V4，2026-10-14。状态：设计规格；尚未实现检测、深度定位或跟踪。
+版本：V4，2026-10-14。状态：设计规格仍有效；代码骨架已实现至 V3 门控壳（`enable_objects` / `enable_tracking` 默认 false；离线 detect/objects/track CLI；确定性贪心 IoU 关联，非匈牙利）。实机 ZED、表面真值精度、身份标注 IDF1、Jetson 性能仍为 NOT_RUN，不得记 PASS。
 
 ## 0. 当前授权与结论
 
@@ -231,7 +231,7 @@ VisionObjectArray 包含共同观测键的全部批次字段，另加 tracking_s
 
 基准导出路线：Ultralytics 8.3.0，PyTorch 2.4.1、torchvision 0.19.1、ONNX 1.16.2；Python 3.10 的独立导出环境。导出设置：FP32、640、batch=1、dynamic=false、simplify=false、opset=17，不把后处理 NMS 嵌入 ONNX。导出和模型获取都在未来单独获准后执行，不触碰系统环境。
 
-部署基准：ONNX Runtime CPU 1.20.1、NumPy 1.26.4、OpenCV headless 4.10.0.84；V3 再加 SciPy 1.11.4。Linux ROS 使用与 Humble 相符的 Python 3.10 隔离环境，核对生成脚本解释器及 rclpy 导入路径；不升级全局 Python/NumPy。图像按 Image 数据和 NumPy 解码，首版不引入 cv_bridge 的二进制版本耦合。缺 wheel/ABI 不兼容时报告环境阻塞，不自动升级 CUDA/JetPack。
+部署基准：ONNX Runtime CPU 1.20.1、NumPy 1.26.4、OpenCV headless 4.10.0.84。V3 首版采用确定性贪心按类 IoU 关联，**不**引入 SciPy/匈牙利（SciPy 1.11.4 曾为候选，未采用）。Linux ROS 使用与 Humble 相符的 Python 3.10 隔离环境，核对生成脚本解释器及 rclpy 导入路径；不升级全局 Python/NumPy。图像按 Image 数据和 NumPy 解码，首版不引入 cv_bridge 的二进制版本耦合。缺 wheel/ABI 不兼容时报告环境阻塞，不自动升级 CUDA/JetPack。
 
 推理进程不导入 Ultralytics/PyTorch，不调用自动下载；只读显式提供的本地 ONNX 和 model_manifest.json。manifest 必填来源、权重/ONNX SHA256、许可、导出工具版本、输入输出布局及类别表。上游模型许可与仓库自身许可分开保留；许可条件未确认时停止模型导入，不擅自购买许可或把权重公开打包。
 
@@ -277,10 +277,10 @@ RGB 等待最多 100 ms，队列最多 10；超时仍可做二维检测，但对
 
 ## 8. V3 实现规格：短时二维身份关联
 
-首版采用同类别 IoU 与匈牙利分配，不引入外观重识别网络、额外模型或未经测量的三维运动预测。
+首版采用同类别 IoU 与**确定性贪婪**分配（按 IoU 降序，再按 track_id / detection_index 破平；不引入 SciPy 匈牙利），不引入外观重识别网络、额外模型或未经测量的三维运动预测。
 
 - 输入为当前真实二维检测，深度有效与否不影响关联。
-- 每类独立匹配，IoU≥0.30 才允许关联，代价为 1-IoU；不可配对代价设为大值，使用虚拟新建/失踪项，禁止强行匹配。
+- 每类独立匹配，IoU≥0.30 才允许关联，代价为 1-IoU；低于门槛不得强行匹配。
 - 轨迹按内部 ID、检测按 detection_index 排序后分配，保证给定输入和版本下结果可复现。
 - 新检测建立 tentative 轨迹，连续 3 次真实匹配后 confirmed。未确认时不发布稳定 object_id。
 - confirmed 轨迹失踪后保留 0.70 s 的关联状态，本帧不发布其历史位置或预测观测；超时删除。未确认轨迹首次漏检即删除。

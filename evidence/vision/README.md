@@ -1,24 +1,43 @@
 # Vision Evidence Policy
 
-Status: NO_VISION_EXPERIMENT_RUN. This directory is a scaffold placeholder, not
-evidence that detection, 3D projection, tracking or arm integration works.
+Status: DEV webcam / fake-image ROS path may be exercised by the owner on
+Ubuntu103; this tree does **not** claim ZED or production camera acceptance.
 
-Future runs use `<date>_<V1|V2|V3>_<run>/`. Each run must preserve:
+- Skeleton / no camera run: `camera_contract=NOT_RUN`
+- Explicit `mode:=v1_ros` with local webcam or fake Image:
+  `camera_contract=DEV_WEBCAM_ONLY / NOT_ZED`
+- `ARM_READY=NO`
+- Defaults: `enable_objects` / `enable_tracking` **false**. V2 `/objects` only with
+  explicit `enable_objects:=true` (fake-depth smoke offline; real ZED = NOT_RUN)
 
-- metadata with REAL_CAMERA / RECORDED_CAMERA / SYNTHETIC source classification;
-- code commit plus dirty/source snapshot and exact parameter copy;
-- detector model SHA256, class mapping, backend/version and resource settings;
-- source images/depth/CameraInfo or rosbag, with acquisition stamps and frames;
-- detections.csv, objects.csv and rejected-input.csv as applicable;
-- metrics.json, raw logs, optional labelled visual evidence and SHA256 manifest.
+## Canonical V1 templates (package-local)
 
-V1 requires labelled bottle/cup and no-target scenes. V2 requires independent
-position truth in the same coordinate frame. V3 requires identity-labelled
-sequences and reset/occlusion/staleness cases. Metrics and numeric acceptance
-thresholds must be fixed before the acceptance run.
+Empty shells ship **inside** `vision_perception` so isolated two-package syncs
+do not need this monorepo `evidence/` tree:
 
-Keep failed and incomplete runs. Never replace missing depth with a valid zero
-position, fabricate an object or pose, or file an empty shell as a no-target run.
-Synthetic examples, real camera results and hardware/arm experiments must remain
-separately labelled. Do not copy existing navigation or UWB data here as vision
-acceptance evidence.
+- Source: `src/vision_perception/evidence/templates/{V1_OFFLINE,V1_ROS}/`
+- Install: `share/vision_perception/evidence/templates/…`
+
+See `src/vision_perception/evidence/README.md`.
+
+## Run directory layout
+
+Filled runs use `evidence/vision/<date>_<stage>_<run>/` and must never overwrite
+history. Stage tags: `V0_SHELL`, `V1_OFFLINE`, `V1_ROS`, `V2_POSITION`,
+`V3_TRACKING`.
+
+Each run must preserve at least `metadata.json`, `parameters.yaml`,
+`source_hash.txt`, `manifest.sha256`, `acceptance_protocol.yaml`, `logs/`,
+and raw `inputs/` or rosbag as applicable.
+
+```bash
+SHARE=$(ros2 pkg prefix vision_perception)/share/vision_perception/evidence/templates/V1_ROS
+# or from source: SHARE=src/vision_perception/evidence/templates/V1_ROS
+RUN=evidence/vision/$(date +%Y%m%d)_V1_ROS_smoke01
+mkdir -p "$RUN/logs"
+cp "$SHARE"/* "$RUN/"
+```
+
+Do not label DEV_WEBCAM evidence as ZED or METRIC_VALIDATED production acceptance.
+Keep failed and incomplete runs. Model weights may be gitignored; record on-disk
+path and SHA256.
